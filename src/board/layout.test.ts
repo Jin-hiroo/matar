@@ -135,11 +135,15 @@ describe('layoutBorderTags on A4 with 32 mm tags', () => {
     expect(three.map((t) => t.centerMm)).toEqual(kept.map((t) => t.centerMm));
   });
 
-  it('allows a keep-out that only touches a footprint', () => {
-    const keepOutMm = [{ x: 48, y: 48, width: 10, height: 10 }];
-    expect(
-      layoutBorderTags({ areaMm: A4, originMm: origin, sizeMm: 32, ids: IDS, keepOutMm }),
-    ).toEqual(tags);
+  it('drops a position whose footprint only touches a keep-out', () => {
+    // the top-left footprint spans 8…48 mm
+    const touching = [{ x: 48, y: 48, width: 5, height: 5 }];
+    const near = [{ x: 48.001, y: 48.001, width: 5, height: 5 }];
+    const base = { areaMm: A4, originMm: origin, sizeMm: 32, ids: IDS };
+    expect(layoutBorderTags({ ...base, keepOutMm: touching }).map((t) => t.centerMm)).toEqual(
+      tags.slice(1).map((t) => t.centerMm),
+    );
+    expect(layoutBorderTags({ ...base, keepOutMm: near })).toEqual(tags);
   });
 
   it('stops when the IDs run out', () => {

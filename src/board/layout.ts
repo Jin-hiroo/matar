@@ -19,8 +19,8 @@
  *   left → right, right edge top → bottom, bottom edge right → left, left edge
  *   bottom → top). `ids` are assigned in that order; layout stops when they
  *   run out.
- * - A position whose footprint overlaps a keep-out rectangle (interiors
- *   intersect; touching is fine) is dropped, not moved, and uses no ID.
+ * - A position whose footprint intersects or touches a keep-out rectangle
+ *   is dropped, not moved, and uses no ID.
  *
  * An inner ring around an object is a second call whose `areaMm` is the
  * object's bounding rectangle grown outward by at least marginMm + F (+ any
@@ -50,7 +50,7 @@ export interface LayoutBorderTagsOptions {
   marginMm?: number;
   /** minimum gap between neighbouring white rings, default 0; at least one cell is always kept */
   minGapMm?: number;
-  /** page-mm rectangles no footprint may overlap; overlapping positions are dropped */
+  /** page-mm rectangles; positions whose footprint touches one are dropped */
   keepOutMm?: readonly RectMm[];
   /** tag IDs, assigned in ring order; layout stops when they run out */
   ids: readonly number[];
@@ -171,10 +171,10 @@ export function layoutBorderTags(opts: LayoutBorderTagsOptions): BoardTag[] {
     if (out.length >= ids.length) break;
     const blocked = keepOut.some(
       (r) =>
-        px - half < r.x + r.width &&
-        px + half > r.x &&
-        py - half < r.y + r.height &&
-        py + half > r.y,
+        px - half <= r.x + r.width &&
+        px + half >= r.x &&
+        py - half <= r.y + r.height &&
+        py + half >= r.y,
     );
     if (blocked) continue;
     out.push({
