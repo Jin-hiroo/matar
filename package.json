@@ -1,0 +1,72 @@
+{
+  "name": "matar",
+  "version": "0.0.0",
+  "description": "Browser AR for printed paper mats: square-tag tracking from the phone camera, no WebXR, no app.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "NOTICE",
+    "THIRD_PARTY_NOTICES"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./three": {
+      "types": "./dist/three/index.d.ts",
+      "default": "./dist/three/index.js"
+    },
+    "./testing": {
+      "types": "./dist/synth/index.d.ts",
+      "default": "./dist/synth/index.js"
+    }
+  },
+  "peerDependencies": {
+    "three": ">=0.170.0"
+  },
+  "peerDependenciesMeta": {
+    "three": {
+      "optional": true
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "vite demo",
+    "demo:build": "vite build demo",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:long": "MATAR_LONG=1 vitest run",
+    "test:e2e": "playwright test",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "size": "pnpm build && size-limit"
+  },
+  "packageManager": "pnpm@10.27.0",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
+    "@size-limit/preset-small-lib": "^14.2.0",
+    "@types/node": "^24.19.2",
+    "@types/three": "^0.186.0",
+    "@vitejs/plugin-basic-ssl": "^2.3.0",
+    "eslint": "^10.13.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.10",
+    "size-limit": "^14.2.0",
+    "three": "^0.186.1",
+    "tsx": "^4.23.15",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.2",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.5"
+  }
+}
