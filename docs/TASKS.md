@@ -116,7 +116,7 @@ local copy in yours and note it for de-duplication after merge.
 
 ## WS-P Pose & maths (`src/math/`, `src/pose/`)
 
-- [ ] **P1 Maths + frames**: small linear algebra (3×3/4×4 ops, Jacobi SVD for
+- [x] **P1 Maths + frames**: small linear algebra (3×3/4×4 ops, Jacobi SVD for
       3×3 and small symmetric eigen, Cholesky ≤ 9×9, homography DLT with
       Hartley normalisation), `src/pose/frames.ts` (CV ↔ GL, inversions),
       `projectionFromIntrinsics` (§2.6). _Accept_: identities to 1e-12;
