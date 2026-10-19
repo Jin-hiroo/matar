@@ -149,7 +149,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       board data and one fake detection with random corners → both in
       `rejectedTagIds`, pose still meets P2; deterministic; ≤ 1 ms for 15 tags
       on M-series.
-- [ ] **P5 Filter**: §5.6 `createPoseFilter` (`PoseFilter` in `src/types.ts`):
+- [x] **P5 Filter**: §5.6 `createPoseFilter` (`PoseFilter` in `src/types.ts`):
       One Euro with one shared α per step, jump gating, loss hold. _Accept_
       (defaults, 30 fps): static pose with Gaussian noise of 1 mm / 0.2° RMS
       as 3D magnitudes (σ/√3 per axis) → output 3D RMS ≤ 0.55 mm / 0.10°
