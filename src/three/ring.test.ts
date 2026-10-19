@@ -100,10 +100,10 @@ type Setup = ReturnType<typeof setup>;
 /** camera.matrixWorld equals the pose of frame `id` (mm → m). */
 function expectCameraAt(s: Setup, id: number): void {
   const want = s.poseOf(id);
-  const e = s.camera.matrixWorld.elements;
+  const e: readonly number[] = s.camera.matrixWorld.elements;
   for (let i = 0; i < 16; i++) {
     const w = (want[i] as number) * (i >= 12 && i < 15 ? mmToM : 1);
-    expect(Math.abs(e[i] - w)).toBeLessThan(1e-12);
+    expect(Math.abs((e[i] as number) - w)).toBeLessThan(1e-12);
   }
 }
 
@@ -114,7 +114,7 @@ describe('MatarThree texture ring (T3-2)', () => {
     s.pose(0);
     expect(s.ar.update()).toEqual({ tracking: true, frameId: 0 });
     const bg = s.scene.background as VideoFrameTexture;
-    expect(bg.isVideoFrameTexture).toBe(true);
+    expect(bg).toBeInstanceOf(VideoFrameTexture);
     expect(bg.colorSpace).toBe(SRGBColorSpace);
     expect(bg.generateMipmaps).toBe(false);
     expect(bg.minFilter).toBe(LinearFilter);

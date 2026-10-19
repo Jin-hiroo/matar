@@ -233,7 +233,7 @@ describe('MatarThree camera sync (T3-1)', () => {
       true,
     );
     for (let i = 0; i < 16; i++) {
-      expect(camera.projectionMatrix.elements[i]).toBeCloseTo(want.elements[i], 12);
+      expect(camera.projectionMatrix.elements[i]).toBeCloseTo(want.elements[i] as number, 12);
     }
   });
 
@@ -256,12 +256,13 @@ describe('MatarThree camera sync (T3-1)', () => {
       scene.updateMatrixWorld();
       camera.updateMatrixWorld();
       expect(camera.matrixAutoUpdate).toBe(true);
-      const e = camera.matrixWorld.elements;
+      const e: readonly number[] = camera.matrixWorld.elements;
       for (let j = 0; j < 16; j++) {
+        const got = e[j] as number;
         if (j >= 12 && j < 15) {
-          maxPosMm = Math.max(maxPosMm, Math.abs(e[j] / mmToM - (pose[j] as number)));
+          maxPosMm = Math.max(maxPosMm, Math.abs(got / mmToM - (pose[j] as number)));
         } else {
-          maxRot = Math.max(maxRot, Math.abs(e[j] - (pose[j] as number)));
+          maxRot = Math.max(maxRot, Math.abs(got - (pose[j] as number)));
         }
       }
     }
