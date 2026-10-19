@@ -90,7 +90,7 @@ local copy in yours and note it for de-duplication after merge.
 
 ## WS-D Detector (`src/detect/`)
 
-- [ ] **D1 Threshold + candidates**: decimation, tile threshold, border
+- [x] **D1 Threshold + candidates**: decimation, tile threshold, border
       following, Douglas–Peucker, quad filters (ARCHITECTURE.md §4.1 steps 1–3).
       _Accept_: on synthetic boards (or local test images until S1 lands) every
       tag's quad is found for ≥ 3 px/cell, tilt ≤ 60°; no crash on all-black,
