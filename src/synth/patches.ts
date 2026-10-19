@@ -1,8 +1,18 @@
 /**
  * Random printed distractors for false-positive tests: dark blocks, thin
- * text-like strokes, and tag-like squares (black border + random inner cells,
- * which are almost never a valid code of the board's IDs).
+ * text-like strokes, and tag-like squares (black border + random inner cells).
+ * Tag-like squares are redrawn until they are more than `minHammingToFamily − 1`
+ * bits from every code of the family in every rotation, so a test that expects
+ * zero detections can't be broken by a pattern that is a real tag up to noise.
  */
+import {
+  DEFAULT_FAMILY,
+  cellsToCode,
+  getFamilyDef,
+  popcount32,
+  rotateCellsCw,
+} from '../tags/index.js';
+import type { FamilyDef } from '../tags/index.js';
 import type { Board, Vec2 } from '../types.js';
 import type { SynthPatch } from './render.js';
 import { uniform } from './random.js';
@@ -13,13 +23,23 @@ export interface RandomPatchesOptions {
   count: number;
   /** keep clear of this board's tags (incl. a 1-cell margin) */
   avoid?: Board;
-  /** cells per side of tag-like squares, default 8 */
+  /** cells per side of tag-like squares, default the family's `squareCells` (8) */
   squareCells?: number;
+  /** family whose codes tag-like squares must stay away from, default tag36h11 */
+  family?: string;
+  /**
+   * minimum Hamming distance from every family code in every rotation,
+   * default 5 (decoding corrects ≤ 2 bits, so noise would need ≥ 3 more flips);
+   * only applies when `squareCells` equals the family's
+   */
+  minHammingToFamily?: number;
 }
 
 export function randomPatches(rng: () => number, o: RandomPatchesOptions): SynthPatch[] {
+  const def = getFamilyDef(o.family ?? DEFAULT_FAMILY);
+  const n = o.squareCells ?? def.family.squareCells;
+  const minDist = n === def.family.squareCells ? (o.minHammingToFamily ?? 5) : 0;
   const out: SynthPatch[] = [];
-  const n = o.squareCells ?? 8;
   const clear = (c: Vec2, r: number) =>
     !o.avoid?.tags.some((t) => {
       const tr = (t.sizeMm / 2) * Math.SQRT2 * (1 + 2 / n);
@@ -42,15 +62,39 @@ export function randomPatches(rng: () => number, o: RandomPatchesOptions): Synth
       // dark block
       p = { centerMm: center, sizeMm: [uniform(rng, 4, 30), uniform(rng, 4, 30)], rotationDeg };
     } else {
-      // tag-like square with random inner cells
+      // tag-like square with random inner cells, far from every real code
       const size = uniform(rng, 12, 40);
       const cells = new Uint8Array(n * n);
-      for (let r = 1; r < n - 1; r++)
-        for (let c = 1; c < n - 1; c++) cells[r * n + c] = rng() < 0.5 ? 1 : 0;
+      do {
+        for (let r = 1; r < n - 1; r++)
+          for (let c = 1; c < n - 1; c++) cells[r * n + c] = rng() < 0.5 ? 1 : 0;
+      } while (minDist > 0 && familyDistance(def, cells) < minDist);
       p = { centerMm: center, sizeMm: [size, size], rotationDeg, cells };
     }
     const radius = Math.hypot(p.sizeMm[0], p.sizeMm[1]) / 2;
     if (clear(center, radius)) out.push(p);
   }
   return out;
+}
+
+/** Smallest Hamming distance from `cells` (squareCells²) to any code of the family, any rotation. */
+export function familyDistance(def: FamilyDef, cells: Uint8Array): number {
+  const n = def.family.squareCells;
+  let a = Uint8Array.from(cells);
+  let b = new Uint8Array(n * n);
+  let best = Infinity;
+  for (let rot = 0; rot < 4; rot++) {
+    const [hi, lo] = cellsToCode(def, a);
+    for (let id = 0; id < def.family.count; id++) {
+      const d =
+        popcount32((hi ^ (def.codesHi[id] as number)) >>> 0) +
+        popcount32((lo ^ (def.codesLo[id] as number)) >>> 0);
+      if (d < best) best = d;
+    }
+    if (rot < 3) {
+      rotateCellsCw(a, n, b);
+      [a, b] = [b, a];
+    }
+  }
+  return best;
 }

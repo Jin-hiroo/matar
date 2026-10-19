@@ -13,9 +13,9 @@ getUserMedia (rear main lens)
   │
   ├─ per new video frame (requestVideoFrameCallback)
   │    grab frame N ──────────── transfer ──▶  to gray (§6)
-  │    onGrab(N): integrator snapshots          detect tags (§4)
-  │      the same frame for display              │ quads → decode → sub-pixel corners
-  │      (matar/three: texture ring)             pose (§5)
+  │    'grab' event N: matar/three           detect tags (§4)
+  │      uploads the same frame for display      │ quads → decode → sub-pixel corners
+  │      (texture ring, §7.2)                    pose (§5)
   │                                              │ homography → IPPE → LM, outliers
   │                                              focal self-calibration (§5.5)
   │  ◀──────────────── result N ─────────────────┘
@@ -58,6 +58,8 @@ the library only ever sees board coordinates.
   TL (−h, −h), TR (h, −h), BR (h, h), BL (−h, h), with h = sizeMm / 2.
 - `rotationDeg` θ rotates clockwise on the printed page, like SVG `rotate(θ)`:
   `x' = x cos θ − y sin θ`, `y' = x sin θ + y cos θ` (in y-down page axes).
+  In the board frame that is a rotation by **−θ about +Y** (right-hand rule),
+  since board (x, z) = page (x, y).
 - `boardTagCornersMm(tag)` returns the four corners in board [x, z] in the order
   TL, TR, BR, BL (clockwise on the page, clockwise seen from +Y). Detections
   (`TagDetection.corners`) use the same order, so corner i ↔ corner i.
@@ -102,6 +104,19 @@ Derivation: NDC x = 2(u + 0.5)/w − 1, NDC y = 1 − 2(v + 0.5)/h, with
 X = x, Y = −y, Z = −z (GL camera coordinates x, y, z). Unit test: projecting
 board points with this matrix must match `u, v` from §2.4 to 1e-9 px.
 
+The same matrix as a frustum (`glFrustum`, three's `makePerspective`), which is
+how `matar/three` sets it so three's `coordinateSystem` (WebGL/WebGPU) and
+`reversedDepth` are respected:
+
+```
+l = −n(cx + 0.5)/fx      r = n(w − cx − 0.5)/fx
+t =  n(cy + 0.5)/fy      b = −n(h − cy − 0.5)/fy
+```
+
+`projectionFromIntrinsics(k, near, far)` (core, `src/pose/frames.ts`) returns
+the WebGL matrix above; `near`/`far` are in the units of camera space (mm for
+core poses, metres in three.js).
+
 When the frame is shown cropped/scaled in a canvas (object-fit "cover"), the
 same formula is applied to the **effective intrinsics of the visible crop**
 (§7.3). Getting this wrong is the usual cause of overlays that drift toward
@@ -142,13 +157,25 @@ bitX: Uint8Array; bitY: Uint8Array }` via `getFamilyDef(name)`.
 - IDs unique within a board. Different boards should use different seeded ID
   sets (`pickTagIds`); random 40-of-587 sets share ≈ 2.7 IDs on average, and
   the consensus step (§5.4) rejects a neighbour's tags that slip in.
-- Black squares + their 1-cell white rings must not overlap (validated). The
-  layout helper adds one more white cell of gap (RESEARCH.md §2.8) and keeps
-  tags ≥ 8 mm from the area edge.
-- Recommended (docs, not enforced): ≤ 40 tags per board; A4 border ring of
-  12–14 × 32 mm tags, plus an inner ring of 4–6 × 20 mm tags around the object
-  for close-ups; A3 for objects ≳ 10 cm; matte paper; a 100 mm ruler and an
-  ID-1 card outline (85.60 × 53.98 mm) for the print-scale check.
+- Black squares + their 1-cell white rings must not overlap (validated, with
+  rotated squares tested exactly, not by bounding boxes).
+- **Layout** (`layoutBorderTags`): a tag's footprint is its black square plus
+  its white ring (`sizeMm · 10/8`). The ring of tags fills the border band of
+  `areaMm`: footprints ≥ `marginMm` (default 8) from the area edge, measured to
+  the outer edge of the white ring; neighbouring footprints at least one cell
+  (`sizeMm/8`, RESEARCH.md §2.8) or `minGapMm` apart, whichever is larger. The
+  four corner positions are shared by two edges; each edge gets the most tags
+  that fit at the minimum pitch, spaced evenly. Order: clockwise on the page
+  from the top-left corner tag; `ids` are used in that order and layout stops
+  when they run out. Tags whose footprint intersects a `keepOutMm` rectangle
+  are dropped (not moved) without consuming an ID. A4 with 32 mm tags → 4 per
+  short edge, 6 per long edge, **16 tags**. An inner ring around an object is
+  a second call whose `areaMm` is the object's footprint rectangle grown
+  outward.
+- Recommended (docs, not enforced): ≤ 40 tags per board; the A4 border ring of
+  16 × 32 mm tags, plus an inner ring of 20 mm tags around the object for
+  close-ups; A3 for objects ≳ 10 cm; matte paper; a 100 mm ruler and an ID-1
+  card outline (85.60 × 53.98 mm) for the print-scale check.
 - Tiled (multi-page) boards: tiles must be aligned to ≲ 1 mm; misalignment is
   overlay error. Per-tile offset estimation is future work.
 
@@ -156,7 +183,7 @@ bitX: Uint8Array; bitY: Uint8Array }` via `getFamilyDef(name)`.
 
 Input: `GrayImage` (analysis resolution, default 1280 × 720 or 720 × 1280).
 Output: `TagDetection[]` with sub-pixel corners. Pure functions, preallocated
-state object (`createDetector({ width, height, family, ids, options })` returns
+state object (`createDetector(opts: DetectorOptions)` returns
 an object whose `detect(gray)` reuses its buffers; it reallocates only when the
 frame size changes; `setIds(ids)` swaps the board's code set).
 
@@ -167,11 +194,12 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
 
 ### 4.1 Steps
 
-1. **Decimation** (optional): quad search on a point-sampled ×2 image when
-   `decimate: 2`, or `'auto'` (default): ×2 if the previous frame's smallest
-   detected cell was ≥ 8 px at full resolution (≥ 4 px decimated), else ×1.
-   Decimated → full coordinates: `full = (p + 0.5)·d − 0.5`. Steps 4–5 always
-   run on the full-resolution image.
+1. **Decimation** (optional): quad search on a 2 × 2 box-averaged image when
+   `decimate: 2`. Decimated → full coordinates: `full = (p + 0.5)·d − 0.5`.
+   Steps 4–5 always run on the full-resolution image. `'auto'` (added with D5,
+   then the default): ×1 on every 8th frame and whenever the previous frame
+   detected nothing; otherwise ×2 if the previous frame's smallest detected
+   cell was ≥ 8 px at full resolution (≥ 4 px decimated), else ×1.
 2. **Adaptive threshold** (AprilTag 3): 4 × 4 px tiles, each tile's min and
    max, extrema dilated over the 3 × 3 tile neighbourhood, threshold
    (min + max)/2. Pixels whose local max − min < `minContrast` (default 10) are
@@ -187,9 +215,14 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
 4. **Edge refinement** (AprilTag `refine_edges`, integer-centre convention):
    for each side, sample points along the line; at each, search ±(d + 1) px
    along the normal at 4 steps/px in the **full-res gray image** (bilinear),
-   weight each step by the squared gradient, discard steps whose gradient has
-   the wrong sign (must go black inside → white outside); the weighted mean is
-   the edge point. Fit a line per side (weighted total least squares);
+   **linearised** first through a 256-entry LUT `lin[v] = (v/255)^edgeGamma`
+   (option `edgeGamma`, default 2.2, 1 = off), weight each step by the squared
+   gradient, discard steps whose gradient has the wrong sign (must go black
+   inside → white outside); the weighted mean is the edge point. Why linearise:
+   optics blur in linear light and the camera then gamma-encodes, so gradients
+   of the encoded values peak on the ink side; that biases edges ≈ 0.5 px inward
+   and corners ≈ 0.7 px at blur σ 0.8–1.2 px (measured on `renderBoard`, which
+   models the same; linearised: ≤ 0.03 px). Fit a line per side (weighted total least squares);
    corners = intersections of adjacent lines. Reject if a corner moved > 3 px
    or the quad became non-convex.
 5. **Decode**: homography (8 unknowns, h33 = 1) from the 8 × 8 cell grid to
@@ -274,16 +307,20 @@ refine from the board:
 2. **Keyframes** (worker): frames with ≥ 6 inlier tags, RMS < 1 px and board
    tilt ≥ 20°, each differing from the kept ones by ≥ 10° in viewing direction;
    keep up to 20 (drop the least tilted).
-3. **Closed form** (RESEARCH.md §2.5): with centred, normalised homographies,
-   each keyframe gives two linear equations in w = 1/f²; least squares over all
-   keyframes gives w, f = 1/√w (reject w ≤ 0).
-4. **Bundle**: joint LM over f and the keyframe poses (shared f), started from
-   the closed form. Never free f in the per-frame pose LM (f and depth are
-   coupled).
-5. **Accept** when ≥ 3 keyframes, the estimate's standard deviation (LM
-   covariance) < 1 %, and f ∈ [0.7, 1.4] × prior. Emit `intrinsics` with
-   `source: 'estimated'`. Keep refining until the deviation < 0.3 %; once
-   accepted, never move more than 2 % per update.
+3. **Closed form** (RESEARCH.md §2.5): per keyframe, the homography H (DLT,
+   §5.2) from board (x, z) mm to **centred, scaled pixels**
+   ((u − cx)/L, (v − cy)/L), L = the frame's long side, gives two linear
+   equations in w = (L/f)²; least squares over all keyframes gives w, and
+   f = L/√w (reject w ≤ 0). (The equations are homogeneous in H, so its scale
+   and the board origin don't matter.) Never free f in the per-frame pose LM
+   (f and depth are coupled). A joint bundle over f and the keyframe poses is
+   not needed in v0.1: in simulation the closed form's error is 0.22 % against
+   the bundle's 0.19 % (RESEARCH.md §2.5).
+4. **Uncertainty**: solve each keyframe on its own too (wᵢ, fᵢ); the standard
+   deviation of the estimate is `std(fᵢ)/√N` as a % of f (N keyframes).
+5. **Accept** when ≥ 3 keyframes, the deviation < 1 %, and f ∈ [0.7, 1.4] ×
+   prior. Emit `intrinsics` with `source: 'estimated'`. Keep refining until the
+   deviation < 0.3 %; once accepted, never move more than 2 % per update.
 6. **Jumps**: if 5 consecutive keyframe-quality frames each give a closed-form f
    more than 10 % from the accepted one (e.g. a lens switch), drop the
    keyframes and start again from the latest estimate.
@@ -306,14 +343,27 @@ motion, and same-frame display (§7.2) matters more than smoothing.
 
 One Euro filter (Casiez et al. 2012) on the camera position (mm) and on
 rotation (quaternion: q̂ ← q̂ · exp(α · log(q̂⁻¹ q)), hemisphere-aligned).
+Position and rotation each compute their cutoff fc = `minCutoffHz` + `beta` ·
+|speed| from their own filtered speed, but **one α per step** is used for both,
+from fc = max(fc_pos, fc_rot). With separate α's, orbiting the board (fast
+rotation, slow translation) lets the position lag and the content slides
+≈ 1 mm.
 Defaults (to be tuned on device): position `minCutoffHz` 1.5, `beta` 0.1 Hz per
-mm/s; rotation `minCutoffHz` 1.5, `beta` 20 Hz per rad/s; `dCutoffHz` 1.
-**Jump gating**: a raw pose > 20 mm or > 5° from the filtered one is ignored
-unless the jump persists for 3 frames, then the filter resets to it. Reset also
-after a loss. dt comes from frame timestamps, not wall-clock.
+mm/s; rotation `minCutoffHz` 1.5, `beta` 20 Hz per rad/s; `dCutoffHz` 1. At
+30 fps these give ≈ 0.47 mm / 0.09° output RMS for 1 mm / 0.2° input noise on a
+static pose (TASKS.md P5).
+**Jump gating**: a raw pose > `jumpMm` (20) or > `jumpDeg` (5°) from the
+filtered one is ignored (the output holds) unless the jump persists for
+`jumpFrames` (3) frames, then the filter resets to it. dt comes from frame
+timestamps, not wall-clock.
 
-Pose loss: no inlier tag for `lostAfterMs` (default 300 ms) → `pose` event with
-`pose: null`. Until then the last pose is held.
+**Loss** (`PoseFilter.update(null, t)`, `src/types.ts`): a frame without a pose
+holds the last output until `lostAfterMs` (default 300 ms) has passed since the
+last pose; then the output is null and the filter resets. The tracker emits a
+`pose` event for every analysed frame: `pose` is that frame's raw estimate
+(null if none), `smoothed` the filter output. Apps (and `MatarThree`) treat
+`smoothed !== null` as tracking. `smoothing: false` → `smoothed` is the raw
+pose, no hold.
 
 ## 6. Camera, frames and the worker (`src/camera/`, `src/worker/`, `src/tracker/`)
 
@@ -325,7 +375,10 @@ Constraints: `{ audio: false, video: { facingMode: { ideal: 'environment' },
 width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } }`.
 Never ask for > 30 fps by default (Safari may lower the resolution to meet it;
 high-fps formats are heavily cropped). The `<video>` is `playsinline muted
-autoplay`, and `play()` is called in `start()`.
+autoplay`, and `play()` is called in `start()`. A video the tracker creates
+itself stays in the DOM (1 × 1 px, `opacity: 0`, `pointer-events: none`):
+detached or `display: none` videos may stop delivering frames on some browsers
+(a DEVICE-TESTS row checks this).
 
 **Lens pinning.** A lens switch silently changes the intrinsics, so the tracker
 tries to stay on one lens:
@@ -338,7 +391,8 @@ tries to stay on one lens:
    exactly `Back Camera` (English; labels are localised), reopen on that
    device (the plain wide lens). Otherwise stay on the virtual device and
    apply `zoom: 1` if the capabilities offer `zoom.min < 1` (wide framing).
-   Report `lens: 'pinned' | 'virtual'` in stats and the chosen label. More
+   Report `lens: 'pinned' | 'virtual' | 'unknown'` (`LensKind`) in stats and
+   the chosen label. More
    locales are added from device-test data, not guessed.
 4. **Android / Chrome**: back cameras are labelled `camera2 N, facing back`
    (not localised). Choose the lowest N; reopen if the current track isn't it.
@@ -353,22 +407,35 @@ tests collect real labels (DEVICE-TESTS.md).
 **v0.1 path (iOS 17+, Android Chrome; one code path):** in the main-thread
 `requestVideoFrameCallback`, when the worker is idle:
 
-1. `onGrab(frameId, video)` (the display snapshot, §7.2), then
-2. `new VideoFrame(video, { timestamp })` → `postMessage(…, [frame])`.
-3. Worker: `frame.allocationSize()` → `copyTo(buffer)` into a reused buffer;
+1. `frame = new VideoFrame(video, { timestamp })`.
+2. Dispatch the **`grab` event** synchronously (`GrabEvent { frameId, video,
+frame }`): `MatarThree` uploads `frame` into its texture ring here (§7.2).
+3. `postMessage({ type: 'frame', …, displayWidth: video.videoWidth,
+displayHeight: video.videoHeight, screenAngleDeg:
+screen.orientation?.angle ?? 0, videoFrame: frame }, [frame])`. After the
+   transfer the frame is unusable on the main thread.
+4. Worker: `frame.allocationSize()` → `copyTo(buffer)` into a reused buffer;
    then `frame.close()`.
    - `NV12` / `I420` / `I420A` (and other planar YUV): the **Y plane is the
      gray image** (respect `layout[0].offset` and `stride`). WebKit camera
      frames are full-range NV12 (no conversion at all).
    - `RGBA` / `RGBX` / `BGRA` / `BGRX`: luma = (77 R + 150 G + 29 B) >> 8.
+   - `format === null` (opaque, e.g. GPU-backed frames): `copyTo(buffer,
+{ format: 'RGBA' })` where supported, else the tracker switches to the
+     canvas path for this stream.
    - Size from the frame (`visibleRect`, `codedWidth`/`codedHeight`), **never
      from `getSettings()`** (it can report landscape for portrait frames).
-   - If `frame.rotation` (Chrome 138+) is non-zero, rotate the gray image so
-     the analysed image has the orientation of what `<video>` shows.
+   - Orientation: if `frame.rotation` (Chrome 138+) is non-zero, rotate by it.
+     Otherwise, if the frame's size is the transpose of `displayWidth ×
+displayHeight`, rotate by `screenAngleDeg` (the direction is confirmed by
+     a DEVICE-TESTS row). The analysed image always has the orientation of
+     what `<video>` shows.
 
-Canvas `getImageData` is **never** used on the hot path (Safari's
-fingerprinting protection can make it ~60× slower). A canvas fallback exists
-only for desktop browsers without `VideoFrame` (`gray` message variant).
+Canvas `getImageData` is **never** used on the hot path when `VideoFrame` works
+(Safari's fingerprinting protection can make it ~60× slower). The canvas path
+(`drawImage(video)` → gray → `gray` message variant) exists for browsers
+without `VideoFrame` and for opaque frames that can't be copied; there the
+`grab` event has `frame: null`.
 
 **Later (v0.2, measure first):** iOS 18+ can run `MediaStreamTrackProcessor` in
 the worker on a transferred track clone (no main-thread work per frame), and
@@ -381,35 +448,36 @@ Frame timing: `rVFC` metadata `mediaTime`/`presentedFrames` identify frames;
 
 ### 6.3 Worker protocol
 
-Messages are plain objects with a `type`; buffers are transferred.
+Messages are plain objects with a `type`; buffers are transferred. The
+normative types are `MainToWorker`, `WorkerToMain` and `WorkerOptions` in
+`src/types.ts`:
 
-```ts
-// main → worker
-{ type: 'init', board: Board, intrinsics: CameraIntrinsics | null, options: WorkerOptions }
-{ type: 'board', board: Board }
-{ type: 'intrinsics', intrinsics: CameraIntrinsics, source: 'provided' | 'prior' }
-{ type: 'frame', frameId: number, timestampMs: number,
-  // exactly one of:
-  videoFrame?: VideoFrame,                               // transferred (§6.2)
-  gray?: { width: number; height: number; data: ArrayBuffer } } // transferred (fallback, tests)
-{ type: 'dispose' }
-
-// worker → main
-{ type: 'ready' }
-{ type: 'result', frameId, timestampMs, width, height,
-  detections: TagDetection[], pose: BoardPose | null,   // raw (unsmoothed)
-  timingsMs: { gray: number; detect: number; pose: number; total: number },
-  returned?: ArrayBuffer }                               // gray buffer back for reuse
-{ type: 'intrinsics', intrinsics: CameraIntrinsics, source: 'estimated', stdDevPct: number }
-{ type: 'error', message: string }
-```
+- main → worker: `init` (board, intrinsics or null → prior from the first
+  frame, options), `board`, `intrinsics` (provided/prior), `frame` (frameId,
+  timestampMs, display size and screen angle, and exactly one of a transferred
+  `videoFrame` or a transferred `gray` buffer), `dispose`.
+- worker → main: `ready`; `result` (frameId, timestampMs, analysed size,
+  detections, the raw pose, **the intrinsics and `focalSource` the frame was
+  solved with**, timings, the gray buffer back for reuse, and with `debug` the
+  test video's `debugFrameIndex`); `intrinsics` (a new estimate); `error`
+  (code, message).
 
 The worker is spawned with
 `new Worker(new URL('../worker/main.js', import.meta.url), { type: 'module' })`
-so bundlers (Vite, webpack, Turbopack) emit it as a separate chunk. Integrators
+so bundlers (Vite, webpack, Turbopack) emit it as a separate same-origin chunk,
+the only thing the library ever loads (CLAUDE.md core idea 1). Integrators
 may pass their own `Worker` (`createTracker({ worker })`), or `worker: false`
 to run inline on the main thread (tests, debugging, environments without
-module workers). The worker and inline paths call the same `processFrame()`.
+module workers). The inline path loads the processing code with a dynamic
+`import()`, so it costs nothing when unused. If the worker fails to start (the
+constructor throws, or an `error` arrives before `ready`), the tracker emits a
+`worker-failed` error event and falls back to inline. The worker and inline
+paths call the same `processFrame()`.
+
+**Bundler safety**: no browser globals (`window`, `document`, `navigator`,
+`Worker`, `VideoFrame`, `screen`) at module top level anywhere in `src/`;
+touch them only inside functions. Importing `matar` during server-side
+rendering must not throw.
 
 ### 6.4 Tracker lifecycle
 
@@ -422,13 +490,16 @@ module workers). The worker and inline paths call the same `processFrame()`.
   track `ended` meanwhile (iOS does this), re-acquire the camera with the same
   device and settings.
 - iOS Low Power Mode caps animation frames at 30 fps; nothing assumes more.
-- Errors surface as `error` events with a stable `code`:
-  `insecure-context`, `no-camera-api`, `permission-denied`, `no-camera`,
-  `camera-in-use`, `overconstrained`, `worker-failed`, `unknown`.
+- Every state change fires a `state` event (`StateEvent { state, previous }`).
+- Errors surface as `error` events (`TrackerErrorEvent`) with a stable `code`
+  (`TrackerErrorCode`): `insecure-context`, `no-camera-api`,
+  `permission-denied`, `no-camera`, `camera-in-use`, `overconstrained`,
+  `worker-failed`, `unknown`. An error the tracker recovers from (worker →
+  inline) doesn't change the state.
 
 ## 7. `matar/three` (`src/three/`)
 
-Peer `three ≥ 0.170`. ≤ 8 KB. The only place that knows metres:
+Peer `three ≥ 0.173` (the first release with `VideoFrameTexture`). ≤ 8 KB. The only place that knows metres:
 `src/three/units.ts` exports `mmToM` (0.001).
 
 ### 7.1 Usage
@@ -444,34 +515,64 @@ renderer.setAnimationLoop(() => {
 The board is the world: content added to `scene` in metres in board
 coordinates sits on the paper. `ar.update()`:
 
-1. takes the newest result whose frame is in the texture ring;
+1. takes the newest pose event whose frame is in the texture ring;
 2. sets `scene.background` to that frame's texture with the cover crop (§7.3);
-3. sets `camera.matrixWorld` from the smoothed `boardFromCamera` (translation ×
-   `mmToM`), `matrixWorldInverse`, `projectionMatrix` from §2.6 and
-   `projectionMatrixInverse`. The camera has `matrixAutoUpdate = false`;
-   never call `camera.updateProjectionMatrix()` on it.
-4. returns `{ tracking: boolean, frameId }` so apps can hide content when lost.
+3. copies the smoothed `boardFromCamera` (translation × `mmToM`) into
+   `camera.matrix` and `decompose`s it into `position`/`quaternion`/`scale`
+   (three recomputes `matrixWorld` from these on every render, so setting
+   `matrixWorld` directly would be overwritten). `matrixAutoUpdate` stays
+   `true`. The camera must have no parent or an identity-transform parent;
+   `MatarThree` checks this and throws otherwise.
+4. sets `camera.projectionMatrix` with `makePerspective(l, r, t, b, n, f,
+camera.coordinateSystem, camera.reversedDepth)` from §2.6 with the crop
+   intrinsics of §7.3, `n`/`f` = `camera.near`/`camera.far` (metres), and
+   `projectionMatrixInverse` = its inverse. Calling
+   `camera.updateProjectionMatrix()` overwrites this until the next `update()`.
+5. returns `{ tracking: smoothed !== null, frameId }` so apps can hide content
+   when lost.
 
 ### 7.2 Same-frame display (texture ring)
 
-The tracker calls `onGrab(frameId, video)` synchronously in the task that grabs
-frame N. `MatarThree` uploads the video's current frame into ring texture
-`N mod 3` right there (`texture.needsUpdate = true; renderer.initTexture(tex)`).
-When result N arrives, `update()` shows texture N with pose N. Display latency
-= worker time + up to one frame, and video and overlay always match.
-`background: 'live'` (show the `<video>` directly, lowest latency, slight
-swim) and `'none'` (app draws its own background) are options.
+A ring of 3 `VideoFrameTexture`s (`colorSpace = SRGBColorSpace`,
+`generateMipmaps = false`, linear filtering). A plain `Texture` with a video
+image doesn't work (three sizes its storage from `image.width`, which is 0 for
+a video), and a live `VideoTexture` re-uploads on its own frame callback, so
+the frame shown would no longer be the frame analysed.
+
+On the tracker's `grab` event for frame N (synchronous, before the transfer,
+§6.2): `tex = ring[N mod 3]; tex.setFrame(e.frame ?? e.video);
+renderer.initTexture(tex)`, which uploads now. Inside the frame callback the
+`<video>` shows the same frame, so `e.video` is the fallback when there is no
+`VideoFrame` (or, if a device test shows WebKit can't upload `VideoFrame`s to
+WebGL, the only source). When pose N arrives, `update()` shows texture N with
+pose N. With one frame in flight, 3 textures always cover "shown" and
+"pending". Display latency = worker time + up to one frame, and video and
+overlay always match. `background: 'none'` leaves the background to the app.
+Accepted by a real-three test in Chromium (Playwright): render, read pixels
+back, and check the background is frame N's content when pose N is applied.
 
 ### 7.3 Canvas fit
 
-The canvas usually has a different aspect from the frame. matar uses "cover":
-scale s = max(Wc/w, Hc/h), centred crop. The background texture gets the
-matching `repeat`/`offset`, and the projection uses the effective intrinsics of
-the visible crop (fx·s, fy·s, principal point shifted by the crop offset, in
-canvas pixels). `ar.pointerToNdc(event)` and `ar.raycaster(event)` map taps to
-rays with the same mapping.
+The canvas (Wc × Hc, CSS pixels) usually has a different aspect from the frame
+(w × h). matar uses "cover": scale s = max(Wc/w, Hc/h), crop offsets
+ox = (Wc − s·w)/2, oy = (Hc − s·h)/2 (≤ 0). Effective intrinsics of the visible
+crop, used with W = Wc, H = Hc in §2.6:
+
+```
+fx' = s·fx    fy' = s·fy
+cx' = s(cx + 0.5) + ox − 0.5    cy' = s(cy + 0.5) + oy − 0.5
+```
+
+Background texture: `repeat = (Wc/(s·w), Hc/(s·h))`, `offset = ((1 −
+repeat.x)/2, (1 − repeat.y)/2)`. Taps: `ndc.x = 2(clientX − rect.left)/rect.width
+− 1`, `ndc.y = 1 − 2(clientY − rect.top)/rect.height`; `ar.pointerToNdc(event)`
+and `ar.raycaster(event)` use exactly this, with the projection above, so a tap
+on the projection of a board point gives a ray through it.
 
 ## 8. Public API (normative)
+
+Types not spelled out here (options, events, the tracker interface, worker
+messages) are defined in `src/types.ts`, which is part of this section.
 
 ```ts
 // 'matar'
@@ -487,6 +588,26 @@ export type {
   TagDetection,
   CameraIntrinsics,
   BoardPose,
+  DetectorOptions,
+  Detector,
+  OneEuroParams,
+  PoseFilterOptions,
+  PoseFilter,
+  FocalSource,
+  FocalEstimate,
+  FocalEstimator,
+  TrackerState,
+  TrackerErrorCode,
+  LensKind,
+  TrackerOptions,
+  TrackerStats,
+  Tracker,
+  TrackerEventMap,
+  PoseEvent,
+  GrabEvent,
+  IntrinsicsEvent,
+  StateEvent,
+  TrackerErrorEvent,
 } from './types.js';
 
 // tags (src/tags)
@@ -495,133 +616,116 @@ export const DEFAULT_FAMILY: string; // §3
 export function tagCells(family: string, id: number): Uint8Array; // squareCells², 1 = white
 
 // boards (src/board)
-export function createBoard(input: { family?: string; tags: BoardTag[] }): Board;
-// validates: family known, IDs unique and in range, sizeMm > 0, tags don't overlap
-// (incl. quiet zones); returns a frozen copy
+export function createBoard(input: { family?: string; tags: readonly BoardTag[] }): Board;
+// validates: family known, IDs unique and in range, sizeMm > 0, tags (with their
+// white rings) don't overlap; errors name the tag IDs; returns a deep-frozen copy
 export function boardTagCornersMm(tag: BoardTag): [Vec2, Vec2, Vec2, Vec2]; // board [x, z]
 export function pickTagIds(family: string, count: number, seed: string): number[];
 // deterministic seeded random subset, distinct (§3.1)
 export function scaleBoard(board: Board, s: number): Board;
 // positions and sizes × s: the print-scale correction (measured ruler / 100 mm)
+export interface RectMm {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} // page mm, y down
 export function layoutBorderTags(opts: {
-  areaMm: { x: number; y: number; width: number; height: number }; // page mm
+  areaMm: RectMm; // the ring fills this rectangle's border band (§3.1)
   originMm: Vec2; // page mm of the board origin
   sizeMm: number; // tag edge (black square)
-  minGapMm?: number; // between quiet zones, default 0
-  keepOutMm?: Vec2[][]; // page-mm polygons tags must not overlap (incl. quiet zone)
-  ids: number[]; // used in order; layout stops when they run out
+  ids: readonly number[]; // used in order (clockwise from top-left); stops when they run out
+  marginMm?: number; // area edge → outer edge of the white ring, default 8
+  minGapMm?: number; // between white rings, default (and at least) one cell
+  keepOutMm?: readonly RectMm[]; // tags touching these are dropped
   family?: string;
-}): BoardTag[]; // board coordinates
+}): BoardTag[]; // board coordinates, rotationDeg 0
 export function tagSvg(
   family: string,
   id: number,
-  opts: {
-    sizeMm: number;
-    quietZone?: boolean /* default true */;
-    label?: boolean;
-  },
-): string;
-// an <svg> element string in mm units, black square sizeMm wide
+  opts: { sizeMm: number; quietZone?: boolean /* white ring, default true */; label?: boolean },
+): string; // an <svg> element string in mm units, black square sizeMm wide
 export function boardSvg(
   board: Board,
   opts: {
-    pageMm: Vec2;
+    pageMm: Vec2; // page width, height
     originMm: Vec2;
-    rulerMm?: number /* default 100, 0 = none */;
-    cardOutline?: boolean /* ID-1 card, default true */;
+    rulerMm?: number; // default 100, 0 = none
+    cardOutline?: boolean; // ID-1 card, default true
     title?: string;
   },
-): string;
-// one page; tiled boards call it per page with that page's originMm
+): string; // one page; tiled boards call it per page with that page's originMm
 
-// tracking (src/tracker)
-export function createTracker(opts: TrackerOptions): Tracker;
+// tracking (src/tracker, src/camera)
+export function createTracker(opts: TrackerOptions): Tracker; // sync; start() opens the camera
 export function listCameras(): Promise<{ deviceId: string; label: string; rear: boolean }[]>;
 // labels are empty until camera permission was granted once
-export interface TrackerOptions {
-  board: Board;
-  video?: HTMLVideoElement; // created (hidden, playsinline, muted) if omitted
-  camera?: { width?: number; height?: number; frameRate?: number; deviceId?: string };
-  intrinsics?: CameraIntrinsics; // restore a saved calibration (same frame size)
-  fovPriorDeg?: number; // long-side FOV prior, §5.5
-  autoFocal?: boolean; // default true
-  smoothing?: { minCutoffHz?: number; beta?: number; dCutoffHz?: number } | false;
-  lostAfterMs?: number; // default 300
-  worker?: Worker | false; // default: bundled module worker
-  onGrab?: (frameId: number, video: HTMLVideoElement) => void; // §7.2
-}
-export interface Tracker extends EventTarget {
-  readonly state: 'idle' | 'starting' | 'running' | 'paused' | 'stopped' | 'error';
-  readonly video: HTMLVideoElement;
-  readonly intrinsics: CameraIntrinsics | null;
-  start(): Promise<void>;
-  stop(): void;
-  setBoard(board: Board): void;
-  // events: 'pose' (PoseEvent), 'intrinsics' (IntrinsicsEvent), 'state', 'error' (TrackerErrorEvent)
-}
-export interface PoseEvent extends Event {
-  readonly frameId: number;
-  readonly timestampMs: number;
-  readonly pose: BoardPose | null; // raw; null when lost
-  readonly smoothed: Mat4 | null; // boardFromCamera after §5.6
-  readonly detections: readonly TagDetection[];
-  readonly intrinsics: CameraIntrinsics; // used for this frame
-  readonly stats: {
-    fps: number;
-    workerMs: number;
-    timingsMs: Record<string, number>;
-    camera: { label: string; lens: 'pinned' | 'virtual' | 'unknown' };
-    focal: { fx: number; source: 'prior' | 'provided' | 'estimated'; stdDevPct: number | null };
-  };
-}
 
 // pure stages (also usable without the tracker)
-export function createDetector(opts: {
-  width: number;
-  height: number;
-  family: string;
-  ids: readonly number[] | 'all';
-  maxCorrectedBits?: number;
-  minContrast?: number;
-  decimate?: 1 | 2 | 'auto';
-}): {
-  detect(img: GrayImage): TagDetection[];
-  setIds(ids: readonly number[] | 'all'): void;
-};
+export function createDetector(opts: DetectorOptions): Detector;
 export function estimatePose(
   detections: readonly TagDetection[],
   board: Board,
   intrinsics: CameraIntrinsics,
-  previous?: Mat4,
+  previous?: Mat4, // boardFromCamera of the previous frame, for the ambiguity rule (§5.2)
 ): BoardPose | null;
-export function projectionFromIntrinsics(k: CameraIntrinsics, nearMm: number, farMm: number): Mat4;
+export function createPoseFilter(opts?: PoseFilterOptions): PoseFilter; // §5.6
+export function createFocalEstimator(initial: {
+  intrinsics: CameraIntrinsics;
+  source: 'prior' | 'provided';
+}): FocalEstimator; // §5.5
+export function focalPrior(width: number, height: number, fovPriorDeg?: number): CameraIntrinsics;
+export function projectionFromIntrinsics(k: CameraIntrinsics, near: number, far: number): Mat4;
+// WebGL projection, column-major; near/far in camera-space units (§2.6)
 
 // 'matar/three'
 export class MatarThree {
   constructor(opts: {
     tracker: Tracker;
     renderer: WebGLRenderer;
-    camera: PerspectiveCamera;
+    camera: PerspectiveCamera; // no parent, or an identity-transform parent
     scene: Scene;
-    background?: 'synced' | 'live' | 'none';
+    background?: 'synced' | 'none'; // default 'synced' (§7.2)
+    textureSource?: 'frame' | 'video'; // upload the VideoFrame (default) or the <video>
   });
-  update(): { tracking: boolean; frameId: number };
+  update(): { tracking: boolean; frameId: number }; // tracking = smoothed !== null
   pointerToNdc(e: { clientX: number; clientY: number }): Vector2;
   raycaster(e: { clientX: number; clientY: number }): Raycaster;
   dispose(): void;
 }
-export const mmToM: number;
+export const mmToM: number; // 0.001
 
-// 'matar/testing'
+// 'matar/testing' (src/synth/index.ts)
 export function renderBoard(opts: RenderBoardOptions): GrayImage; // §9.1
+export interface RenderBoardOptions {
+  /* §9.1 */
+}
+export interface SynthPatch {
+  centerMm: Vec2;
+  sizeMm: Vec2;
+  rotationDeg: number;
+  cells?: Uint8Array; // n × n, 1 = white: a tag-like square; else a solid rectangle
+  albedo?: number; // 0 … 1 of the way from ink to paper, default 0 (ink)
+}
+export function randomPatches(rng: () => number, opts: RandomPatchesOptions): SynthPatch[];
+// strokes, blocks and tag-like squares ≥ minHammingToFamily (5) bits from every code
+export function intrinsicsFromFov(width: number, height: number, hfovDeg: number): CameraIntrinsics;
+export function lookAtPose(eyeMm: Vec3, targetMm: Vec3, upHint?: Vec3): Mat4; // GL boardFromCamera
+export function rollPose(boardFromCamera: Mat4, rollDeg: number): Mat4;
+export function randomViewPose(rng: () => number, opts: RandomViewOptions): Mat4;
+export function projectBoardPoint(k: CameraIntrinsics, boardFromCamera: Mat4, p: Vec3): Vec2 | null;
 export function projectBoardCorners(
   board: Board,
   k: CameraIntrinsics,
   boardFromCamera: Mat4,
 ): Map<number, [Vec2, Vec2, Vec2, Vec2]>;
-export function lookAtPose(eyeMm: Vec3, targetMm: Vec3, upHint?: Vec3): Mat4; // GL boardFromCamera
 export function mulberry32(seed: number): () => number;
+export function normalSampler(rng: () => number): () => number;
+export function uniform(rng: () => number, lo: number, hi: number): number;
 ```
+
+`src/synth` keeps its own projection maths, independent of `src/pose`: it is
+the test oracle the pose code is checked against.
 
 Changing this section is an API change: bump the minor version while < 1.0,
 note it in the commit, and update SPEC.md §4 if the shape changes.
@@ -630,36 +734,53 @@ note it in the commit, and update SPEC.md §4 if the shape changes.
 
 ### 9.1 Synthetic renderer (`src/synth/`)
 
-`renderBoard({ board, intrinsics, boardFromCamera, width, height, supersample,
-blurSigmaPx, noiseSigma, seed, paper, ink, background, distractors })`:
+`renderBoard(opts: RenderBoardOptions): GrayImage` (normative list in
+`src/synth/render.ts`). The output size is `intrinsics.width × height`.
 
-- For each pixel, cast rays through s × s stratified sample positions (pixel
-  centres at integers, §2.4; default s = 8) into the board plane y = 0, and
-  look up the albedo analytically at board (x, z): tag cells via `tagCells`,
-  white ring and paper elsewhere, `background` beyond the page, optional
-  `distractors` (dark rectangles, text-like strokes, a ruler, random tag-like
-  squares with invalid codes). Adaptive: a pixel whose 4 corner rays and centre
-  hit the same uniform region gets 1 sample (keeps 1280 × 720 renders fast).
-- Work in linear light: average samples, Gaussian blur (`blurSigmaPx`), map to
-  `ink` … `paper` levels (default 30 … 210 DN after encoding), gamma-encode
-  (2.2), add Gaussian noise (`noiseSigma` DN, seeded `mulberry32`), clamp,
-  quantise to `Uint8`. Blurring after gamma would shift edges.
-- Optional motion blur: average `motionSamples` renders along a pose path.
-- Ground truth: `projectBoardCorners` with the same camera. Because the
-  rendering is exact geometry, corner errors measured against it are the
-  detector's own error.
+| Option            | Default       | Meaning                                                            |
+| ----------------- | ------------- | ------------------------------------------------------------------ |
+| `board`           |               | tags to draw                                                       |
+| `intrinsics`      |               | camera and output size                                             |
+| `boardFromCamera` |               | GL, mm; an array of poses = motion blur (averaged in linear light) |
+| `supersample`     | 8             | s × s stratified samples for pixels on an edge                     |
+| `blurSigmaPx`     | 0             | Gaussian blur, linear light                                        |
+| `noiseSigma`      | 0             | Gaussian noise after encoding, DN (seeded)                         |
+| `seed`            | 1             | noise seed (`mulberry32`)                                          |
+| `inkLevel`        | 30            | encoded ink level, DN                                              |
+| `paperLevel`      | 210           | encoded paper level, DN                                            |
+| `backgroundLevel` | 90            | beyond the page or above the horizon, DN                           |
+| `gamma`           | 2.2           | encoding gamma, 1 = linear                                         |
+| `pageMm`          | endless paper | paper extent `{ min, max }`, board [x, z] mm                       |
+| `patches`         | none          | `SynthPatch[]` distractors drawn below the tags (`randomPatches`)  |
+
+- For each pixel, rays through its sample positions (pixel centres at
+  integers, §2.4) hit the board plane y = 0, and the albedo there is looked up
+  analytically: tag cells via `tagCells`, white ring and paper elsewhere,
+  patches, background beyond the page. Adaptive: a pixel whose 4 corners and
+  centre see the same value gets that value (keeps 1280 × 720 renders fast).
+- Linear light throughout: average samples, Gaussian blur, map to the ink …
+  paper levels, gamma-encode, add noise, clamp, quantise to `Uint8`. Blurring
+  after encoding would shift edges; real cameras blur before encoding too,
+  which is why the detector linearises before its edge search (§4.1 step 4).
+- `randomPatches` makes text-like strokes, dark blocks and tag-like squares;
+  tag-like squares are redrawn until they are ≥ 5 bits from every code of the
+  family in every rotation, so zero-detection tests can't flake.
+- Ground truth: `projectBoardCorners` / `projectBoardPoint` with the same
+  camera. Because the rendering is exact geometry, corner errors measured
+  against it are the detector's own error. `src/synth` has its own projection
+  maths on purpose (independent oracle).
 - Pitfalls to test for explicitly (RESEARCH.md §2.9): H vs H⁻¹, the page y-down
   vs board z, corner order, rotation sense, the 0.5 px centre convention.
 
 ### 9.2 Test layers
 
-| Layer     | Where                                        | What                                                                                                                                                                                                                                                                                                                                                            |
-| --------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit      | next to the code, `*.test.ts`                | maths identities, family table checksums, SVG structure, protocol                                                                                                                                                                                                                                                                                               |
-| Synthetic | `tests/synthetic/*.test.ts`                  | detector and pose accuracy over seeded random poses (tolerances in TASKS.md)                                                                                                                                                                                                                                                                                    |
-| Bench     | `tests/bench/*.bench.ts` (`vitest bench`)    | per-stage timing on 1280 × 720 synthetic frames                                                                                                                                                                                                                                                                                                                 |
-| e2e       | `tests/e2e/*.spec.ts` (Playwright, Chromium) | demo page with a fake camera: Chromium's `--use-fake-device-for-media-stream --use-file-for-fake-video-capture=<y4m>` fed by a Y4M rendered from `renderBoard` (`scripts/make-fake-video.ts`, output in `tests/out/`, gitignored). Asserts pose events near ground truth and **no network requests** beyond the page's own origin, and no request bodies at all |
-| Device    | `docs/DEVICE-TESTS.md`                       | maintainer, real phones                                                                                                                                                                                                                                                                                                                                         |
+| Layer     | Where                                        | What                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Unit      | next to the code, `*.test.ts`                | maths identities, family table checksums, SVG structure, protocol                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Synthetic | `tests/synthetic/*.test.ts`                  | detector and pose accuracy over seeded random poses (tolerances in TASKS.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Bench     | `tests/bench/*.bench.ts` (`vitest bench`)    | per-stage timing on 1280 × 720 synthetic frames                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| e2e       | `tests/e2e/*.spec.ts` (Playwright, Chromium) | demo page with a fake camera: Chromium's `--use-fake-device-for-media-stream --use-file-for-fake-video-capture=<y4m>` fed by a Y4M rendered from `renderBoard` (`scripts/make-fake-video.ts`, output in `tests/out/`, gitignored). Each frame carries its index as 16 black/white 8 × 8 px blocks along the top-left edge (bit 15 first, white = 1); with `debug` the worker reads it into `debugFrameIndex`, so poses are compared with the right frame's ground truth. Asserts pose events near ground truth and **no network requests** beyond the page's own origin, and no request bodies at all |
+| Device    | `docs/DEVICE-TESTS.md`                       | maintainer, real phones                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 All randomness is seeded; tests print the seed on failure.
 
