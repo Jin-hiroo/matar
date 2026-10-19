@@ -13,3 +13,4 @@ export {
   type LayoutBorderTagsOptions,
   type RectMm,
 } from './layout.js';
+export { tagSvg, boardSvg, type TagSvgOptions, type BoardSvgOptions } from './svg.js';
