@@ -1,0 +1,56 @@
+/**
+ * Random printed distractors for false-positive tests: dark blocks, thin
+ * text-like strokes, and tag-like squares (black border + random inner cells,
+ * which are almost never a valid code of the board's IDs).
+ */
+import type { Board, Vec2 } from '../types.js';
+import type { SynthPatch } from './render.js';
+import { uniform } from './random.js';
+
+export interface RandomPatchesOptions {
+  /** board [x, z] box to place them in, mm */
+  areaMm: { min: Vec2; max: Vec2 };
+  count: number;
+  /** keep clear of this board's tags (incl. a 1-cell margin) */
+  avoid?: Board;
+  /** cells per side of tag-like squares, default 8 */
+  squareCells?: number;
+}
+
+export function randomPatches(rng: () => number, o: RandomPatchesOptions): SynthPatch[] {
+  const out: SynthPatch[] = [];
+  const n = o.squareCells ?? 8;
+  const clear = (c: Vec2, r: number) =>
+    !o.avoid?.tags.some((t) => {
+      const tr = (t.sizeMm / 2) * Math.SQRT2 * (1 + 2 / n);
+      return Math.hypot(c[0] - t.centerMm[0], c[1] - t.centerMm[1]) < tr + r;
+    });
+  let guard = 0;
+  while (out.length < o.count && guard++ < o.count * 50) {
+    const center: Vec2 = [
+      uniform(rng, o.areaMm.min[0], o.areaMm.max[0]),
+      uniform(rng, o.areaMm.min[1], o.areaMm.max[1]),
+    ];
+    const rotationDeg = uniform(rng, 0, 360);
+    const kind = rng();
+    let p: SynthPatch;
+    if (kind < 0.35) {
+      // text-like stroke
+      const len = uniform(rng, 3, 25);
+      p = { centerMm: center, sizeMm: [len, uniform(rng, 0.4, 1.5)], rotationDeg };
+    } else if (kind < 0.6) {
+      // dark block
+      p = { centerMm: center, sizeMm: [uniform(rng, 4, 30), uniform(rng, 4, 30)], rotationDeg };
+    } else {
+      // tag-like square with random inner cells
+      const size = uniform(rng, 12, 40);
+      const cells = new Uint8Array(n * n);
+      for (let r = 1; r < n - 1; r++)
+        for (let c = 1; c < n - 1; c++) cells[r * n + c] = rng() < 0.5 ? 1 : 0;
+      p = { centerMm: center, sizeMm: [size, size], rotationDeg, cells };
+    }
+    const radius = Math.hypot(p.sizeMm[0], p.sizeMm[1]) / 2;
+    if (clear(center, radius)) out.push(p);
+  }
+  return out;
+}
