@@ -75,7 +75,7 @@ export class EdgeRefiner {
   ): boolean {
     const half = Math.ceil(rangePx * STEPS_PER_PX) + STEPS_PER_PX; // profile half-length, steps
     if (this.prof.length < 2 * half + 1) this.prof = new Float64Array(2 * half + 1);
-    this.start.set(q.subarray(0, 8));
+    for (let i = 0; i < 8; i++) this.start[i] = q[i]!;
     for (let pass = 0; pass < PASSES; pass++) {
       for (let side = 0; side < 4; side++) {
         if (!this.fitSide(gray, w, h, q, side, rangePx, half)) return false;

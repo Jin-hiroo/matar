@@ -39,6 +39,9 @@ export const MIN_PERIMETER_PX = 32;
 /** Minimum quad side, search-image px (§4.1 step 3). */
 export const MIN_SIDE_PX = 8;
 
+/** Placeholder for `gray` between calls (so the frame isn't retained). */
+const NO_IMAGE = new Uint8Array(0);
+
 /** Most candidate quads kept for `lastCandidates()` (debugging and tests). */
 const MAX_DEBUG_QUADS = 512;
 
@@ -90,7 +93,7 @@ export class TagDetector implements Detector {
   private debugCount = 0;
 
   // per-frame state used by the border sink
-  private gray: Uint8Array = new Uint8Array(0);
+  private gray: Uint8Array = NO_IMAGE;
   private out: TagDetection[] = [];
   private readonly sink = (xs: Int32Array, ys: Int32Array, n: number): void =>
     this.onBorder(xs, ys, n);
@@ -147,7 +150,7 @@ export class TagDetector implements Detector {
     // an 8-connected border has at least perimeter / √2 points
     const minPoints = Math.max(8, Math.floor(MIN_PERIMETER_PX / Math.SQRT2));
     this.follower.run(this.labels, minPoints, this.sink);
-    this.gray = new Uint8Array(0);
+    this.gray = NO_IMAGE;
     return this.out;
   }
 
