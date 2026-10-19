@@ -63,7 +63,7 @@ describe('detector decoding (D3)', () => {
     for (let frame = 0; frame < 12; frame++) {
       const ids = pickIds(rng, 9);
       // the tags as printed, but drawn as patches with some data cells flipped
-      const truthBoard = gridBoard(rng, ids, { cols: 3, rows: 3, pitchMm: 45, sizeMm: [28, 32] });
+      const truthBoard = gridBoard(rng, ids, { cols: 3, rows: 3, pitchMm: 60, sizeMm: [28, 32] });
       const flips = new Map<number, number>();
       const patches: SynthPatch[] = truthBoard.tags.map((t, i) => {
         const cells = tagCells('tag36h11', t.id);

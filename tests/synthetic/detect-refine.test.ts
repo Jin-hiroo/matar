@@ -63,4 +63,13 @@ describe('detector corner accuracy (D2)', () => {
       0.25,
     );
   });
+
+  it('without linearisation (edgeGamma 1 on gamma-2.2 frames) corners are biased ≈ 0.7 px', () => {
+    // Documents why the LUT exists (TASKS.md D2): measured RMS ≈ 0.7 px.
+    const r = runFrames({ ...BASE, seed: 205, blurSigmaPx: 0.8, noiseSigma: 0, edgeGamma: 1 });
+    const e = rms(r.errsPx);
+    expect(r.instances).toBeGreaterThanOrEqual(200);
+    expect(e, `seed 205: rms ${e.toFixed(3)} px`).toBeGreaterThan(0.5);
+    expect(e, `seed 205: rms ${e.toFixed(3)} px`).toBeLessThan(0.9);
+  });
 });

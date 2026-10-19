@@ -111,7 +111,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       ≤ 0.25 px; noise 3 DN + blur 1.2 px: RMS ≤ 0.3 px. Ground truth from
       `projectBoardCorners`. Also report the RMS with `edgeGamma: 1` (expected
       ≈ 0.7 px) to show the linearisation matters.
-- [ ] **D3 Decode + order** (steps 5–7) incl. `src/detect/decode.ts` matcher.
+- [x] **D3 Decode + order** (steps 5–7) incl. `src/detect/decode.ts` matcher.
       _Accept_: all four in-plane rotations give the right ID and corner order
       (TL, TR, BR, BL); up to 2 flipped data cells decode to the right ID, 3
       don't decode at all; tags whose shortest projected cell edge is ≥ 3 px,

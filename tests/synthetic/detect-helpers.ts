@@ -40,12 +40,23 @@ export function pickIds(
   return out;
 }
 
-/** A cols × rows grid of tags centred on the origin, random sizes and rotations. */
+/**
+ * A cols × rows grid of tags centred on the origin, random sizes and rotations.
+ * Any rotation must keep the white rings apart (ARCHITECTURE.md §3.1), so the
+ * pitch must be at least the diagonal of the ring square (1.25 × size × √2)
+ * plus 2 mm.
+ */
 export function gridBoard(
   rng: () => number,
   ids: readonly number[],
   o: { cols: number; rows: number; pitchMm: number; sizeMm: [number, number] },
 ): Board {
+  const minPitchMm = 1.25 * Math.SQRT2 * o.sizeMm[1] + 2;
+  if (o.pitchMm < minPitchMm) {
+    throw new Error(
+      `gridBoard: pitch ${o.pitchMm} mm < ${minPitchMm.toFixed(1)} mm lets rings overlap`,
+    );
+  }
   const tags: BoardTag[] = [];
   for (let r = 0; r < o.rows; r++) {
     for (let c = 0; c < o.cols; c++) {
@@ -169,7 +180,7 @@ export interface FrameRunOptions {
   decimate?: 1 | 2;
   edgeGamma?: number;
   ids?: 'board' | 'all';
-  /** board: 3 × 3 tags of this size range, mm, 45 mm apart */
+  /** board: 3 × 3 tags of this size range, mm, 60 mm apart */
   sizeMm?: [number, number];
 }
 
@@ -216,7 +227,7 @@ export function runFrames(o: FrameRunOptions): FrameRunResult {
     const board = gridBoard(rng, pickIds(rng, 9), {
       cols: 3,
       rows: 3,
-      pitchMm: 45,
+      pitchMm: 60,
       sizeMm: o.sizeMm ?? [24, 32],
     });
     if (o.ids !== 'all') det.setIds(board.tags.map((t) => t.id));

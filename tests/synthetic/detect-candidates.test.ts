@@ -41,7 +41,7 @@ function candidateRecall(o: {
     const board = gridBoard(rng, pickIds(rng, 9), {
       cols: 3,
       rows: 3,
-      pitchMm: 45,
+      pitchMm: 60,
       sizeMm: [24, 32],
     });
     const pose = randomViewPose(rng, {
@@ -154,7 +154,7 @@ describe('detector candidates (D1)', () => {
     const board = gridBoard(rng, pickIds(rng, 9), {
       cols: 3,
       rows: 3,
-      pitchMm: 45,
+      pitchMm: 60,
       sizeMm: [28, 32],
     });
     const k = intrinsicsFromFov(320, 240, 65);
