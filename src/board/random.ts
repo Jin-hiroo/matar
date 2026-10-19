@@ -8,8 +8,7 @@
  *   values. FNV-1a: Fowler–Noll–Vo, public domain; fmix32: Austin Appleby,
  *   public domain.
  * - `mulberry32`: Tommy Ettinger's public-domain 32-bit PRNG, uniform floats in
- *   [0, 1). Same algorithm as `src/synth/random.ts` (a local copy, since board
- *   code ships in the library); de-duplicate if a shared helper appears.
+ *   [0, 1). `src/synth` (matar/testing) re-exports this one.
  */
 
 /** 32-bit hash of a string: FNV-1a over UTF-16 code units, then fmix32. */

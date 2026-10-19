@@ -56,7 +56,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## WS-B Boards & print (`src/board/`)
 
-- [ ] **B1 Board model**: `createBoard` (validation per ARCHITECTURE.md §3.1,
+- [x] **B1 Board model**: `createBoard` (validation per ARCHITECTURE.md §3.1,
       frozen copy), `boardTagCornersMm` (already in `src/board/corners.ts`,
       used by `src/synth`; keep its signature), `scaleBoard`, `pickTagIds`.
       _Accept_: corner order/rotation test (θ = 0, 90, 180, 270, 30°: TL maps
@@ -64,17 +64,18 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       with clear messages; `pickTagIds` deterministic per seed, distinct, all
       IDs reachable, two seeds' 40-sets overlap ≈ 2.7 on average (±1, 1000 seed
       pairs).
-- [ ] **B2 Layout**: `layoutBorderTags` per ARCHITECTURE.md §3.1 (border band
+- [x] **B2 Layout**: `layoutBorderTags` per ARCHITECTURE.md §3.1 (border band
       of `areaMm`, margin to the white ring, ≥ 1-cell gap, corners shared, max
       count per edge evenly spaced, clockwise from top-left, rectangular
       keep-outs drop tags). _Accept_: A4 (210 × 297) with 32 mm tags gives
       exactly **16** tags; a 100 × 80 mm keep-out at the centre changes nothing;
       one over the top-left corner drops the tags it touches; an inner ring of
-      20 mm tags around a 120 × 90 mm footprint (second call) doesn't overlap
-      the outer ring; too small an area throws; deterministic; property test
+      20 mm tags around a footprint (second call) doesn't overlap the outer
+      ring (A3 with 120 × 90 mm: 26 + 18 tags; A4 with 50 × 100 mm: 16 + 12;
+      120 × 90 mm doesn't fit inside the A4 ring); too small an area throws; deterministic; property test
       over random areas/sizes/keep-outs: no overlaps, none outside the area or
       inside the margin, none in keep-outs, `createBoard` accepts the result.
-- [ ] **B3 SVG**: `tagSvg`, `boardSvg` (page in mm, tags, origin cross, 100 mm
+- [x] **B3 SVG**: `tagSvg`, `boardSvg` (page in mm, tags, origin cross, 100 mm
       ruler, ID-1 card outline 85.60 × 53.98 mm, "Print at 100 % (Actual
       size)" text, optional title). _Accept_: parsing the SVG back gives the
       exact cells of `tagCells` (round trip) and exact tag positions (1e-6 mm);

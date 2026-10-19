@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { pickTagIds } from './ids.js';
-import { mulberry32 as synthMulberry32 } from '../synth/random.js';
 import { hashString32, mulberry32 } from './random.js';
 
 describe('hashString32 / mulberry32', () => {
@@ -13,12 +12,10 @@ describe('hashString32 / mulberry32', () => {
     for (let i = 0; i < 10; i++) expect(a()).toBe(b());
   });
 
-  it('is the same mulberry32 as the test renderer (local copy, see random.ts)', () => {
-    for (const seed of [0, 1, 42, 0xdeadbeef]) {
-      const a = mulberry32(seed);
-      const b = synthMulberry32(seed);
-      for (let i = 0; i < 100; i++) expect(a()).toBe(b());
-    }
+  it('mulberry32 keeps its sequence (seeded test renders and ID sets depend on it)', () => {
+    const r = mulberry32(42);
+    const u32 = [r(), r(), r()].map((v) => v * 2 ** 32);
+    expect(u32).toEqual([2581720956, 1925393290, 3661312704]);
   });
 });
 
