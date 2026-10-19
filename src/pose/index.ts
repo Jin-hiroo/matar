@@ -11,6 +11,7 @@ export {
   glToCvPoint,
   projectionFromIntrinsics,
 } from './frames.js';
+export { DEFAULT_FOV_PRIOR_DEG, focalPrior } from './intrinsics.js';
 export { ippeRotations, ippeTranslation } from './ippe.js';
 export { PoseProblem, refinePose, type RefineOptions } from './refine.js';
 export { tagPairConsensus } from './consensus.js';

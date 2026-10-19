@@ -15,6 +15,7 @@ import {
   glToCvPoint,
   projectionFromIntrinsics,
 } from './frames.js';
+import { focalPrior } from './intrinsics.js';
 
 const SEED = 4242;
 
@@ -162,5 +163,23 @@ describe('projectionFromIntrinsics', () => {
     expect(zf[2]! / zf[3]!).toBeCloseTo(1, 12);
     expect(() => projectionFromIntrinsics(k, 0, 10)).toThrow();
     expect(() => projectionFromIntrinsics(k, 10, 10)).toThrow();
+  });
+});
+
+describe('focalPrior', () => {
+  it('puts the prior field of view on the long side, for portrait and landscape', () => {
+    const land = focalPrior(1280, 720);
+    const port = focalPrior(720, 1280);
+    const f = 640 / Math.tan((34 * Math.PI) / 180);
+    expect(land).toEqual({ width: 1280, height: 720, fx: f, fy: f, cx: 639.5, cy: 359.5 });
+    expect(port).toEqual({ width: 720, height: 1280, fx: f, fy: f, cx: 359.5, cy: 639.5 });
+    // the long side spans exactly the prior FOV: its edges (−0.5, w − 0.5) are ±fov/2 from the axis
+    for (const k of [land, port]) {
+      const halfLong = Math.max(k.width, k.height) / 2;
+      expect((2 * Math.atan(halfLong / k.fx) * 180) / Math.PI).toBeCloseTo(68, 12);
+    }
+    expect(focalPrior(1920, 1080, 60).fx).toBeCloseTo(960 / Math.tan(Math.PI / 6), 9);
+    expect(() => focalPrior(0, 720)).toThrow();
+    expect(() => focalPrior(1280, 720, 180)).toThrow();
   });
 });
