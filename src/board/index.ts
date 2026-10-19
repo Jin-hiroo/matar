@@ -7,3 +7,9 @@
 export { boardTagCornersMm, tagLocalToBoard } from './corners.js';
 export { createBoard, scaleBoard, tagOuterSizeMm, type CreateBoardInput } from './board.js';
 export { pickTagIds } from './ids.js';
+export {
+  layoutBorderTags,
+  DEFAULT_LAYOUT_MARGIN_MM,
+  type LayoutBorderTagsOptions,
+  type RectMm,
+} from './layout.js';
