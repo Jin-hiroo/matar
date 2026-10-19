@@ -118,7 +118,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       don't decode at all; tags whose shortest projected cell edge is ≥ 3 px,
       tilt ≤ 60°, blur 0.8 px, noise 2 DN: ≥ 99 % detected, **100 % correct
       IDs**.
-- [ ] **D4 False positives**: 1000 clutter frames (`randomPatches` distractors,
+- [x] **D4 False positives**: 1000 clutter frames (`randomPatches` distractors,
       tags with IDs not on the board, random tag-like squares) → **0** detections of board IDs
       in CI; `pnpm test:long` runs 10 000. Tune `minContrast` and border checks
       only with these tests.
