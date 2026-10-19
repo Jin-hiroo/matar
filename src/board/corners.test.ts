@@ -47,3 +47,19 @@ describe('boardTagCornersMm', () => {
     }
   });
 });
+
+describe('boardTagCornersMm at 30°', () => {
+  it('turns TL clockwise on the page about the centre', () => {
+    const c = Math.cos(Math.PI / 6);
+    const s = Math.sin(Math.PI / 6);
+    const corners = boardTagCornersMm({ id: 0, centerMm: [100, 50], sizeMm: 20, rotationDeg: 30 });
+    // §2.3: x' = x cos θ − y sin θ, z' = x sin θ + y cos θ applied to (−10, −10)
+    expect(corners[0][0]).toBeCloseTo(100 + -10 * c + 10 * s, 12);
+    expect(corners[0][1]).toBeCloseTo(50 + -10 * s - 10 * c, 12);
+    // TL moved right of the unrotated TL (90, 40) and up: clockwise
+    expect(corners[0][0]).toBeGreaterThan(90);
+    expect(corners[0][1]).toBeLessThan(40);
+    expect(corners[2][0]).toBeCloseTo(200 - corners[0][0], 12);
+    expect(corners[2][1]).toBeCloseTo(100 - corners[0][1], 12);
+  });
+});
