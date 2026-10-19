@@ -340,7 +340,7 @@ n bits, t corrected bits.
   step < 1e-6.
 - Outliers: drop IDs not on the board and duplicates; RANSAC over **tag pairs**
   (8 points → homography; inliers = tags with all 4 corners within 4 px; ≤ 780
-  pairs for 40 tags); after the solve drop tags with RMS > 3 px or > 3 × median,
+  pairs for 40 tags); after the solve drop tags with RMS > max(3 px, 3 × median),
   re-solve.
 
 ### 2.5 Unknown focal length
@@ -358,7 +358,9 @@ n bits, t corrected bits.
   view), 0.1 % (3), 0.07 % (10), 0.04 % (30); tilt 10–25°: 0.7 / 0.3 / 0.15 /
   0.09 %. σ = 0.5 px: ≈ 1.7× worse. Closed form ≈ joint bundle (0.22 vs 0.19 %).
   Uncorrected k1 = 0.03 biases −0.4 %, k1 = 0.06 → −0.7 %. Don't free f in the
-  per-frame LM (f and depth are coupled); use a windowed bundle with shared f.
+  per-frame LM (f and depth are coupled). Decision (v0.1): closed form only, with
+  the spread of per-keyframe estimates as its uncertainty; a windowed bundle
+  with shared f would gain little (0.19 vs 0.22 %).
 - **Sensitivity** (own simulation, pose refit with wrong f, 30–45 cm, tilt
   20–40°): f off by 1 % → ≤ 0.15 mm at a point 10 cm above the mat; 3 % →
   ≤ 0.4 mm; 10 % → 1.2–1.4 mm (3–9 mm at 20 cm height). The pose absorbs f
@@ -404,9 +406,10 @@ n bits, t corrected bits.
 
 ### 2.8 Board layout guidance
 
-- A4: 12–14 tags of 32 mm (black square) in a border ring (≈ 5 per long edge,
-  1–2 per short), leaving ≈ 190 × 105 mm free (footprints ≲ 10 cm). A3 (≈ 314
-  × 191 mm free) for ≈ 25 cm objects.
+- A4: 16 tags of 32 mm (black square) in a border ring with the layout rule of
+  ARCHITECTURE.md §3.1 (8 mm margin, 1-cell gap between white rings, corners
+  shared: 6 per long edge, 4 per short), leaving ≈ 114 × 201 mm free inside the
+  ring (footprints ≲ 10 cm). A3 for ≈ 25 cm objects.
 - At 20 cm the camera sees only ≈ 255 × 143 mm: add an inner ring of 4–6 × 20 mm
   tags around the footprint so ≥ 4 stay in view.
 - Quiet zone ≥ 1 white cell beyond the tag's own white ring; ≥ 8–10 mm from

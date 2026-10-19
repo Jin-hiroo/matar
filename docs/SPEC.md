@@ -31,34 +31,44 @@ anything natural: no SLAM, no feature matching, no models to download.
 | ID  | Feature                               | Notes                                                                                                                                                                                                                                          |
 | --- | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | F1  | **Tag family + board model**          | One built-in tag family: AprilTag **tag36h11** (ARCHITECTURE.md §3). A board is a list of `{ id, centerMm, sizeMm, rotationDeg }` on the paper plane. Boards may span several printed pages (tiling); the library only sees tag positions.     |
-| F2  | **Board layout helper**               | Place tags around a keep-out region (where the object stands) on a page: border ring, minimum sizes, quiet zones, unique IDs.                                                                                                                  |
+| F2  | **Board layout helper**               | A border ring of tags filling the edge band of a rectangle on the page (8 mm margin, 1-cell gaps, corners shared, evenly spaced); an inner ring around the object by a second call; rectangular keep-outs drop tags; seeded unique IDs.        |
 | F3  | **Print output**                      | SVG of a single tag (to embed in the integrator's own artwork) and SVG of a whole test board with a 100 mm ruler and an ID-1 card outline for the print-scale check. Exact mm units. `scaleBoard()` applies a measured print-scale correction. |
 | F4  | **Camera**                            | Start/stop the rear main camera at 1280×720, pin one lens where the platform allows it (iOS's default rear device switches lenses up close), list cameras for an app-side picker, handle permission errors, pause when hidden or muted.        |
 | F5  | **Detection**                         | Find tags in each frame inside a Web Worker. Reports ID, four sub-pixel corners, bit errors.                                                                                                                                                   |
 | F6  | **Pose**                              | Camera pose relative to the board from all visible tags in one fit. Works with one visible tag; rejects wrong/outlier tags; reports quality (reprojection error, tags used).                                                                   |
 | F7  | **Intrinsics**                        | Browsers don't expose focal length. Start from a field-of-view prior, refine focal length automatically from the board, and let the integrator persist/restore it per device.                                                                  |
 | F8  | **Smoothing**                         | Low-jitter pose with fast response to real motion (One Euro filter). Configurable.                                                                                                                                                             |
-| F9  | **`matar/three`**                     | Video background, a `PerspectiveCamera` whose projection matches the real camera, and pose → `camera.matrixWorld`. The overlay is drawn on the same video frame that was analysed (no "swimming").                                             |
-| F10 | **Debug overlay**                     | Optional: detected quads + IDs, reprojection error, fps, timings, focal length.                                                                                                                                                                |
+| F9  | **`matar/three`**                     | Video background, a `PerspectiveCamera` whose projection matches the real camera (cover crop included), and the pose applied to the camera. The overlay is drawn on the same video frame that was analysed (no "swimming").                    |
+| F10 | **Debug data**                        | Every `pose` event carries detections, reprojection error, fps, per-stage timings, focal length and its source, and the camera label. Drawing them is up to the app; the demo HUD shows how.                                                   |
 | F11 | **`matar/testing`**                   | Synthetic renderer: an image of a board seen from a known camera pose, with blur/noise. Used by our tests, exported for integrators' tests.                                                                                                    |
 | F12 | **Demo app** (`demo/`, not published) | Print a test board, track it, show axes + a cube + the debug HUD. Used for device tests.                                                                                                                                                       |
 
 ## 4. Public API (shape; ARCHITECTURE.md §8 is normative)
 
 ```ts
-import { createBoard, layoutBorderTags, tagSvg, createTracker } from 'matar';
+import { createBoard, layoutBorderTags, pickTagIds, createTracker } from 'matar';
 import { MatarThree } from 'matar/three';
 
-const board = createBoard({ tags: layoutBorderTags({ pageMm: [210, 297], keepOutMm: … }) });
-const tracker = await createTracker({ board, focalPx: saved ?? undefined });
-tracker.addEventListener('pose', (e) => { /* e.pose.boardFromCamera, quality … */ });
-await tracker.start();            // asks for the camera
+const tags = layoutBorderTags({
+  areaMm: { x: 0, y: 0, width: 210, height: 297 }, // A4 page
+  originMm: [105, 148.5], // board origin at the page centre
+  sizeMm: 32,
+  ids: pickTagIds('tag36h11', 40, 'my-board'),
+});
+const board = createBoard({ tags });
+const tracker = createTracker({ board, intrinsics: saved ?? undefined });
+tracker.addEventListener('pose', (e) => {
+  /* e.smoothed (boardFromCamera, mm), e.pose?.rmsErrPx, e.stats … */
+});
+tracker.addEventListener('intrinsics', (e) => save(e.intrinsics)); // persist per device
+await tracker.start(); // asks for the camera; call from a user gesture
 
-const ar = new MatarThree({ tracker, renderer, scene, camera });   // per-frame sync
+const ar = new MatarThree({ tracker, renderer, scene, camera }); // per-frame sync
 ```
 
 The core never imports three.js. Everything returned is plain data (typed
-arrays / numbers).
+arrays / numbers). Importing `matar` has no side effects and touches no
+browser globals, so it is safe in server-side rendering.
 
 ## 5. Budgets (enforced or measured)
 
@@ -66,7 +76,7 @@ arrays / numbers).
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | Core bundle (`matar`, incl. worker)     | ≤ 35 KB min+gzip                                                                                                                             | `pnpm size`           |
 | `matar/three` (excl. three.js)          | ≤ 8 KB min+gzip                                                                                                                              | `pnpm size`           |
-| Runtime network requests by the library | **0**                                                                                                                                        | e2e test asserts none |
+| Runtime network requests by the library | **0** besides its own worker chunk (same origin)                                                                                             | e2e test asserts none |
 | Upload                                  | **0 bytes**: frames never leave the device                                                                                                   | code review + e2e     |
 | Processing rate                         | ≥ 30 fps at 1280×720 on iPhone 12 / Pixel 7-class                                                                                            | device tests          |
 | Worker time per frame                   | median ≤ 12 ms on those devices                                                                                                              | debug HUD             |

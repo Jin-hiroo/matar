@@ -31,6 +31,23 @@ Read the values off the demo's debug HUD.
 7. Put a 3D-printed or measured object (e.g. a 50 mm cube) on the printed
    outline: note the visible overlay offset in mm (top and bottom edges).
 8. Lock the phone, unlock: camera and tracking resume.
+9. Rotate the phone portrait ↔ landscape: the video, the HUD's analysed frame
+   size and the overlay stay upright and aligned.
+
+## Platform checks
+
+One-off checks of browser behaviour the design depends on (ARCHITECTURE.md §6.2,
+§7.2). The demo's HUD (with `?debug`) shows the values; record yes/no and the
+value per device in the Notes column of the results.
+
+| Check              | What to look at                                                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| VideoFrame format  | HUD `frame`: `format` (NV12 / I420 / RGBA / null), coded size, `rotation`                                                                                          |
+| Orientation        | in portrait, is the VideoFrame transposed vs `videoWidth × videoHeight`? If so, does rotating by `screen.orientation.angle` give an upright image (HUD thumbnail)? |
+| VideoFrame → WebGL | background shows the camera with `?bg=frame` (VideoFrame upload) and with `?bg=video` (video-element upload)                                                       |
+| Hidden video       | with the tracker-created 1 × 1 px video, frames keep arriving (fps ≥ 25)                                                                                           |
+| Worker             | HUD `worker: module` (not `inline`), and no requests other than the page's own origin in Web Inspector / DevTools                                                  |
+| Lens labels        | every `videoinput` label (HUD list), and which one was pinned                                                                                                      |
 
 ## Results
 
