@@ -128,7 +128,7 @@ local copy in yours and note it for de-duplication after merge.
       error of a point 100 mm above the board centre (difference of its
       projections under true and estimated pose, in mm at its depth)
       ≤ 0.3 mm RMS.
-- [ ] **P3 Ambiguity**: single 40 mm tag at 30 cm, tilt ≥ 20°, σ = 0.15 px,
+- [x] **P3 Ambiguity**: single 40 mm tag at 30 cm, tilt ≥ 20°, σ = 0.15 px,
       previous pose = truth perturbed by 2°: correct branch ≥ 99 %; overlay
       error on the board ≤ 1 mm.
 - [ ] **P4 Outliers**: §5.4. _Accept_: one board tag displaced 20 mm in the
