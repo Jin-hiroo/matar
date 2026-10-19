@@ -173,8 +173,9 @@ bitX: Uint8Array; bitY: Uint8Array }` via `getFamilyDef(name)`.
   a second call whose `areaMm` is the object's footprint rectangle grown
   outward.
 - Recommended (docs, not enforced): ≤ 40 tags per board; the A4 border ring of
-  16 × 32 mm tags, plus an inner ring of 20 mm tags around the object for
-  close-ups; A3 for objects ≳ 10 cm; matte paper; a 100 mm ruler and an ID-1
+  16 × 32 mm tags (free interior 114 × 201 mm), plus an inner ring of 20 mm
+  tags around the object for close-ups. On A4 the inner ring fits only around
+  footprints up to ≈ 55 × 140 mm; larger objects need A3 or no inner ring; A3 for objects ≳ 10 cm; matte paper; a 100 mm ruler and an ID-1
   card outline (85.60 × 53.98 mm) for the print-scale check.
 - Tiled (multi-page) boards: tiles must be aligned to ≲ 1 mm; misalignment is
   overlay error. Per-tile offset estimation is future work.
@@ -269,6 +270,11 @@ For every detected tag present in the board: four pairs
    parallel views, Schweighofer & Pinz 2006) and a previous pose exists, keep
    the candidate nearer the previous pose (rotation angle). A whole mat in view
    resolves the ambiguity by itself; it matters for close-ups of 1–2 tags.
+   Known weakness: a single small, distant tag has only 2 residual degrees of
+   freedom, so the ratio is noisy (20 mm tag at 60 cm, σ 0.3 px: the right
+   branch 87 % of the time with a previous pose, 78 % without; a ratio of 10
+   gives 99.4 %). The test case (40 mm at 30 cm) is at 100 %. A threshold
+   scaled by residual degrees of freedom and noise is listed under Later.
 
 The OpenCV IPPE port (`ippe.cpp`, BSD-3, Toby Collins) is a valid reference;
 if code is ported rather than re-derived from the paper, add its notice to
@@ -653,8 +659,13 @@ export function boardSvg(
     rulerMm?: number; // default 100, 0 = none
     cardOutline?: boolean; // ID-1 card, default true
     title?: string;
+    keepOutMm?: readonly RectMm[]; // keep the print-check block off these (the object)
   },
 ): string; // one page; tiled boards call it per page with that page's originMm
+// The print-check block (title, note, ruler, card) goes as close to the page's
+// bottom-centre as fits: ≥ 5 mm inside the page, ≥ 3 mm clear of tags, the
+// origin cross and keep-outs. Throws if it can't fit (use rulerMm: 0 /
+// cardOutline: false or a larger page).
 
 // tracking (src/tracker, src/camera)
 export function createTracker(opts: TrackerOptions): Tracker; // sync; start() opens the camera
@@ -668,7 +679,9 @@ export function estimatePose(
   board: Board,
   intrinsics: CameraIntrinsics,
   previous?: Mat4, // boardFromCamera of the previous frame, for the ambiguity rule (§5.2)
-): BoardPose | null;
+  options?: PoseOptions, // inlierPx 4, huberPx 1.5, ambiguityRatio 1.5, maxIterations 10,
+  //                        dropMinPx 3, dropMedianFactor 3 (§5.2–5.4)
+): BoardPose | null; // not re-entrant (module-level scratch buffers); one call at a time
 export function createPoseFilter(opts?: PoseFilterOptions): PoseFilter; // §5.6
 export function createFocalEstimator(initial: {
   intrinsics: CameraIntrinsics;

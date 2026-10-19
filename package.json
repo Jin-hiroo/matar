@@ -43,6 +43,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:long": "MATAR_LONG=1 vitest run",
+    "bench": "vitest bench --run",
     "test:e2e": "playwright test",
     "fake-video": "tsx scripts/make-fake-video.ts",
     "lint": "eslint .",

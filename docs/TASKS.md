@@ -56,7 +56,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## WS-B Boards & print (`src/board/`)
 
-- [ ] **B1 Board model**: `createBoard` (validation per ARCHITECTURE.md §3.1,
+- [x] **B1 Board model**: `createBoard` (validation per ARCHITECTURE.md §3.1,
       frozen copy), `boardTagCornersMm` (already in `src/board/corners.ts`,
       used by `src/synth`; keep its signature), `scaleBoard`, `pickTagIds`.
       _Accept_: corner order/rotation test (θ = 0, 90, 180, 270, 30°: TL maps
@@ -64,17 +64,18 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       with clear messages; `pickTagIds` deterministic per seed, distinct, all
       IDs reachable, two seeds' 40-sets overlap ≈ 2.7 on average (±1, 1000 seed
       pairs).
-- [ ] **B2 Layout**: `layoutBorderTags` per ARCHITECTURE.md §3.1 (border band
+- [x] **B2 Layout**: `layoutBorderTags` per ARCHITECTURE.md §3.1 (border band
       of `areaMm`, margin to the white ring, ≥ 1-cell gap, corners shared, max
       count per edge evenly spaced, clockwise from top-left, rectangular
       keep-outs drop tags). _Accept_: A4 (210 × 297) with 32 mm tags gives
       exactly **16** tags; a 100 × 80 mm keep-out at the centre changes nothing;
       one over the top-left corner drops the tags it touches; an inner ring of
-      20 mm tags around a 120 × 90 mm footprint (second call) doesn't overlap
-      the outer ring; too small an area throws; deterministic; property test
+      20 mm tags around a footprint (second call) doesn't overlap the outer
+      ring (A3 with 120 × 90 mm: 26 + 18 tags; A4 with 50 × 100 mm: 16 + 12;
+      120 × 90 mm doesn't fit inside the A4 ring); too small an area throws; deterministic; property test
       over random areas/sizes/keep-outs: no overlaps, none outside the area or
       inside the margin, none in keep-outs, `createBoard` accepts the result.
-- [ ] **B3 SVG**: `tagSvg`, `boardSvg` (page in mm, tags, origin cross, 100 mm
+- [x] **B3 SVG**: `tagSvg`, `boardSvg` (page in mm, tags, origin cross, 100 mm
       ruler, ID-1 card outline 85.60 × 53.98 mm, "Print at 100 % (Actual
       size)" text, optional title). _Accept_: parsing the SVG back gives the
       exact cells of `tagCells` (round trip) and exact tag positions (1e-6 mm);
@@ -122,34 +123,35 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       in CI; `pnpm test:long` runs 10 000. Tune `minContrast` and border checks
       only with these tests.
 - [ ] **D5 Performance** (batch 2): `decimate: 'auto'` (§4.1 step 1, then the
-      default); `tests/bench/detect.bench.ts`; report the
+      default); `tests/bench/detect.bench.ts` (vitest 5: `bench` is a test
+      fixture, see `tests/bench/pose.bench.ts`; `pnpm bench`); report the
       median for 1280 × 720 with 15 tags on M-series (target ≤ 4 ms). Optimise
       only measured hot spots; if far over, propose ROI tracking or WASM SIMD in
       the report instead of doing it.
 
 ## WS-P Pose & maths (`src/math/`, `src/pose/`)
 
-- [ ] **P1 Maths + frames**: small linear algebra (3×3/4×4 ops, Jacobi SVD for
+- [x] **P1 Maths + frames**: small linear algebra (3×3/4×4 ops, Jacobi SVD for
       3×3 and small symmetric eigen, Cholesky ≤ 9×9, homography DLT with
       Hartley normalisation), `src/pose/frames.ts` (CV ↔ GL, inversions),
       `projectionFromIntrinsics(k, near, far)` (§2.6, near/far in camera-space
       units), `focalPrior` (§5.5 step 1). _Accept_: identities to 1e-12;
       projection matrix matches pinhole `u, v` to 1e-9 px; DLT exact on exact
       data, stable for nearly degenerate (collinear-ish) inputs (no NaN).
-- [ ] **P2 IPPE + LM**: §5.2–5.3. _Accept_: exact correspondences recover the
+- [x] **P2 IPPE + LM**: §5.2–5.3. _Accept_: exact correspondences recover the
       pose to 1e-6 mm / 1e-6°; 12-tag A4 board at 40 cm, tilt 20–50°, corner
       noise σ = 0.15 px: camera position RMS ≤ 0.5 mm, rotation ≤ 0.1°, overlay
       error of a point 100 mm above the board centre (difference of its
       projections under true and estimated pose, in mm at its depth)
       ≤ 0.3 mm RMS.
-- [ ] **P3 Ambiguity**: single 40 mm tag at 30 cm, tilt ≥ 20°, σ = 0.15 px,
+- [x] **P3 Ambiguity**: single 40 mm tag at 30 cm, tilt ≥ 20°, σ = 0.15 px,
       previous pose = truth perturbed by 2°: correct branch ≥ 99 %; overlay
       error on the board ≤ 1 mm.
-- [ ] **P4 Outliers**: §5.4. _Accept_: one board tag displaced 20 mm in the
+- [x] **P4 Outliers**: §5.4. _Accept_: one board tag displaced 20 mm in the
       board data and one fake detection with random corners → both in
       `rejectedTagIds`, pose still meets P2; deterministic; ≤ 1 ms for 15 tags
       on M-series.
-- [ ] **P5 Filter**: §5.6 `createPoseFilter` (`PoseFilter` in `src/types.ts`):
+- [x] **P5 Filter**: §5.6 `createPoseFilter` (`PoseFilter` in `src/types.ts`):
       One Euro with one shared α per step, jump gating, loss hold. _Accept_
       (defaults, 30 fps): static pose with Gaussian noise of 1 mm / 0.2° RMS
       as 3D magnitudes (σ/√3 per axis) → output 3D RMS ≤ 0.55 mm / 0.10°
@@ -238,6 +240,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## Later (not v0.1)
 
-ROI tracking · WASM SIMD stages · worker-side `MediaStreamTrackProcessor` ·
+ROI tracking · WASM SIMD stages · a degrees-of-freedom-aware ambiguity
+threshold for single small tags (§5.2) · worker-side `MediaStreamTrackProcessor` ·
 principal point and k1 in the focal bundle · per-tile offset estimation for
 tiled boards · gravity to break the planar ambiguity · more families.
