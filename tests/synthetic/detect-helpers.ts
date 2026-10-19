@@ -4,7 +4,15 @@
  * (corners, shortest projected cell edge, tilt, visibility) and corner errors.
  */
 import { tagLocalToBoard } from '../../src/board/corners.js';
-import { projectBoardCorners, projectBoardPoint } from '../../src/synth/index.js';
+import { TagDetector } from '../../src/detect/detector.js';
+import {
+  intrinsicsFromFov,
+  mulberry32,
+  projectBoardCorners,
+  projectBoardPoint,
+  randomViewPose,
+  renderBoard,
+} from '../../src/synth/index.js';
 import type {
   Board,
   BoardTag,
@@ -136,4 +144,118 @@ export function bestCyclicMaxErrPx(q: readonly Vec2[], truth: TagTruth): number 
 
 export function rms(values: readonly number[]): number {
   return Math.sqrt(values.reduce((a, v) => a + v * v, 0) / values.length);
+}
+
+export interface FrameRunOptions {
+  seed: number;
+  /** frame size and horizontal field of view */
+  width: number;
+  height: number;
+  hfovDeg?: number;
+  /** renderer settings */
+  blurSigmaPx: number;
+  noiseSigma: number;
+  supersample?: number;
+  gamma?: number;
+  /** camera distance range and view tilt range */
+  distanceMm: [number, number];
+  tiltDeg: [number, number];
+  /** eligible tags: shortest projected cell edge ≥ minCellPx, own tilt ≤ maxTiltDeg */
+  minCellPx: number;
+  maxTiltDeg: number;
+  /** stop after this many eligible tag instances (or 400 frames) */
+  minInstances: number;
+  /** detector settings */
+  decimate?: 1 | 2;
+  edgeGamma?: number;
+  ids?: 'board' | 'all';
+  /** board: 3 × 3 tags of this size range, mm, 45 mm apart */
+  sizeMm?: [number, number];
+}
+
+export interface FrameRunResult {
+  frames: number;
+  /** eligible tag instances */
+  instances: number;
+  /** eligible instances detected with the right ID */
+  found: number;
+  /** corner errors of the found eligible instances, px */
+  errsPx: number[];
+  /** eligible instances not detected (frame, id, cell size) */
+  misses: string[];
+  /** detections whose ID isn't in the frame or whose corners are > 1.5 px off */
+  wrong: string[];
+}
+
+/**
+ * Renders seeded frames of a random 3 × 3 board and runs a fresh detector per
+ * call over them, collecting recall, corner errors and wrong detections. Used
+ * by the D2/D3 tests and for the numbers in reports.
+ */
+export function runFrames(o: FrameRunOptions): FrameRunResult {
+  const rng = mulberry32(o.seed);
+  const k = intrinsicsFromFov(o.width, o.height, o.hfovDeg ?? 65);
+  const det = new TagDetector({
+    width: o.width,
+    height: o.height,
+    family: 'tag36h11',
+    ids: 'all',
+    decimate: o.decimate ?? 1,
+    edgeGamma: o.edgeGamma ?? 2.2,
+  });
+  const res: FrameRunResult = {
+    frames: 0,
+    instances: 0,
+    found: 0,
+    errsPx: [],
+    misses: [],
+    wrong: [],
+  };
+  for (let frame = 0; res.instances < o.minInstances && frame < 400; frame++) {
+    res.frames++;
+    const board = gridBoard(rng, pickIds(rng, 9), {
+      cols: 3,
+      rows: 3,
+      pitchMm: 45,
+      sizeMm: o.sizeMm ?? [24, 32],
+    });
+    if (o.ids !== 'all') det.setIds(board.tags.map((t) => t.id));
+    const pose = randomViewPose(rng, {
+      distanceMm: o.distanceMm,
+      tiltDeg: o.tiltDeg,
+      rollDeg: [0, 360],
+      targetBoxMm: { min: [-20, -20], max: [20, 20] },
+    });
+    const img = renderBoard({
+      board,
+      intrinsics: k,
+      boardFromCamera: pose,
+      blurSigmaPx: o.blurSigmaPx,
+      noiseSigma: o.noiseSigma,
+      seed: o.seed * 1000 + frame,
+      supersample: o.supersample ?? 8,
+      gamma: o.gamma ?? 2.2,
+    });
+    const dets = det.detect(img);
+    const truths = new Map(tagTruths(board, k, pose).map((t) => [t.id, t]));
+    for (const d of dets) {
+      const t = truths.get(d.id);
+      const err = t ? Math.max(...cornerErrorsPx(d, t)) : Infinity;
+      if (!(err <= 1.5)) res.wrong.push(`frame ${frame} id ${d.id} err ${err.toFixed(2)} px`);
+    }
+    for (const t of truths.values()) {
+      if (!t.inView || t.minCellPx < o.minCellPx || t.tiltDeg > o.maxTiltDeg) continue;
+      res.instances++;
+      const d = dets.find((x) => x.id === t.id);
+      if (!d) {
+        res.misses.push(
+          `frame ${frame} id ${t.id} cell ${t.minCellPx.toFixed(2)} px tilt ${t.tiltDeg.toFixed(1)}°`,
+        );
+        continue;
+      }
+      res.found++;
+      res.errsPx.push(...cornerErrorsPx(d, t));
+    }
+  }
+  return res;
 }

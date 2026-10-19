@@ -96,7 +96,7 @@ local copy in yours and note it for de-duplication after merge.
       tag's quad is found for ≥ 3 px/cell, tilt ≤ 60°; no crash on all-black,
       all-white, 1 × 1, odd sizes; buffers reused across calls (no allocation
       after warm-up, checked by a test hook).
-- [ ] **D2 Edge refinement** (step 4). _Accept_: clean renders (blur 0.8 px, no
+- [x] **D2 Edge refinement** (step 4). _Accept_: clean renders (blur 0.8 px, no
       noise, ≥ 5 px/cell, tilt ≤ 50°) corner RMS ≤ 0.1 px, max ≤ 0.25 px;
       noise 3 DN + blur 1.2 px: RMS ≤ 0.3 px. Ground truth from
       `projectBoardCorners`.
