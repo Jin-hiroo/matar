@@ -100,25 +100,25 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## WS-D Detector (`src/detect/`)
 
-- [ ] **D1 Threshold + candidates**: decimation, tile threshold, border
+- [x] **D1 Threshold + candidates**: decimation, tile threshold, border
       following, Douglas–Peucker, quad filters (ARCHITECTURE.md §4.1 steps 1–3).
       _Accept_: on synthetic boards (or local test images until S1 lands) every
       tag's quad is found for ≥ 3 px/cell, tilt ≤ 60°; no crash on all-black,
       all-white, 1 × 1, odd sizes; buffers reused across calls (no allocation
       after warm-up, checked by a test hook).
-- [ ] **D2 Edge refinement** (step 4, with the `edgeGamma` linearisation).
+- [x] **D2 Edge refinement** (step 4, with the `edgeGamma` linearisation).
       _Accept_ (`edgeGamma` = the render's `gamma`, 2.2): clean renders (blur
       0.8 px, no noise, ≥ 5 px/cell, tilt ≤ 50°) corner RMS ≤ 0.1 px, max
       ≤ 0.25 px; noise 3 DN + blur 1.2 px: RMS ≤ 0.3 px. Ground truth from
       `projectBoardCorners`. Also report the RMS with `edgeGamma: 1` (expected
       ≈ 0.7 px) to show the linearisation matters.
-- [ ] **D3 Decode + order** (steps 5–7) incl. `src/detect/decode.ts` matcher.
+- [x] **D3 Decode + order** (steps 5–7) incl. `src/detect/decode.ts` matcher.
       _Accept_: all four in-plane rotations give the right ID and corner order
       (TL, TR, BR, BL); up to 2 flipped data cells decode to the right ID, 3
       don't decode at all; tags whose shortest projected cell edge is ≥ 3 px,
       tilt ≤ 60°, blur 0.8 px, noise 2 DN: ≥ 99 % detected, **100 % correct
       IDs**.
-- [ ] **D4 False positives**: 1000 clutter frames (`randomPatches` distractors,
+- [x] **D4 False positives**: 1000 clutter frames (`randomPatches` distractors,
       tags with IDs not on the board, random tag-like squares) → **0** detections of board IDs
       in CI; `pnpm test:long` runs 10 000. Tune `minContrast` and border checks
       only with these tests.
