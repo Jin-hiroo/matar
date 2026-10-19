@@ -23,8 +23,9 @@ If these docs and the code disagree, stop and ask; don't silently pick one.
 ## Core ideas (never violate)
 
 1. **Camera frames never leave the device.** The library makes no network
-   requests at all: no telemetry, no CDN, no lazy-loaded models. Everything it
-   needs ships inside the package.
+   requests: no telemetry, no CDN, no lazy-loaded models. Everything it needs
+   ships inside the package. The one fetch is its own worker chunk, emitted by
+   the integrator's bundler and loaded from the page's origin.
 2. **Standard web only.** `getUserMedia`, Canvas/WebGL, Web Workers, (optionally)
    WebAssembly. Must work in iOS Safari 17+ and current Android Chrome with no
    flags. Never require WebXR, native code, or cross-origin isolation.
@@ -40,7 +41,8 @@ If these docs and the code disagree, stop and ask; don't silently pick one.
      one named boundary (`mmToM`).
    - Camera: OpenCV convention internally (+X right, +Y down, +Z forward). The
      public pose uses the three.js/OpenGL camera convention (−Z forward, +Y up).
-     Convert only in `src/pose/frames.ts`.
+     Convert only in `src/pose/frames.ts`. (Exception: `src/synth` keeps its
+     own projection maths as the independent test oracle.)
    - Pixels: pixel centres at **integer** coordinates; the image spans
      [−0.5, w − 0.5].
 6. **Generic.** No app concepts (exhibits, users, auth, storage). A consumer
@@ -71,6 +73,9 @@ pnpm dev           # demo app (vite, https via basic-ssl for phones on the LAN)
 
 - TypeScript strict, `noUncheckedIndexedAccess`; no `any`; no non-null `!`
   without a comment saying why it holds.
+- No browser globals (`window`, `document`, `navigator`, `Worker`,
+  `VideoFrame`, `screen`) at module top level: touch them only inside
+  functions, so importing `matar` works in Node and server-side rendering.
 - Shared types live in `src/types.ts`. Changing them affects every workstream:
   do it deliberately and say so in the commit message.
 - Put units in names: `sizeMm`, `fovDeg`, `errPx`, `dtMs`.

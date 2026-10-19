@@ -6,8 +6,8 @@
  * pinhole model with pixel centres at integer coordinates:
  * u = fx·X/Z + cx, v = fy·Y/Z + cy in CV camera coordinates (Y down, Z forward).
  *
- * Small rigid-transform maths is duplicated from what src/math will provide;
- * de-duplicate after WS-P lands.
+ * Deliberately independent of src/math and src/pose: this is the test oracle
+ * the pose code is checked against, so it must not share its maths.
  */
 import { boardTagCornersMm } from '../board/corners.js';
 import type { Board, CameraIntrinsics, Mat4, Vec2, Vec3 } from '../types.js';
