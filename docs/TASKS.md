@@ -130,27 +130,27 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## WS-P Pose & maths (`src/math/`, `src/pose/`)
 
-- [ ] **P1 Maths + frames**: small linear algebra (3×3/4×4 ops, Jacobi SVD for
+- [x] **P1 Maths + frames**: small linear algebra (3×3/4×4 ops, Jacobi SVD for
       3×3 and small symmetric eigen, Cholesky ≤ 9×9, homography DLT with
       Hartley normalisation), `src/pose/frames.ts` (CV ↔ GL, inversions),
       `projectionFromIntrinsics(k, near, far)` (§2.6, near/far in camera-space
       units), `focalPrior` (§5.5 step 1). _Accept_: identities to 1e-12;
       projection matrix matches pinhole `u, v` to 1e-9 px; DLT exact on exact
       data, stable for nearly degenerate (collinear-ish) inputs (no NaN).
-- [ ] **P2 IPPE + LM**: §5.2–5.3. _Accept_: exact correspondences recover the
+- [x] **P2 IPPE + LM**: §5.2–5.3. _Accept_: exact correspondences recover the
       pose to 1e-6 mm / 1e-6°; 12-tag A4 board at 40 cm, tilt 20–50°, corner
       noise σ = 0.15 px: camera position RMS ≤ 0.5 mm, rotation ≤ 0.1°, overlay
       error of a point 100 mm above the board centre (difference of its
       projections under true and estimated pose, in mm at its depth)
       ≤ 0.3 mm RMS.
-- [ ] **P3 Ambiguity**: single 40 mm tag at 30 cm, tilt ≥ 20°, σ = 0.15 px,
+- [x] **P3 Ambiguity**: single 40 mm tag at 30 cm, tilt ≥ 20°, σ = 0.15 px,
       previous pose = truth perturbed by 2°: correct branch ≥ 99 %; overlay
       error on the board ≤ 1 mm.
-- [ ] **P4 Outliers**: §5.4. _Accept_: one board tag displaced 20 mm in the
+- [x] **P4 Outliers**: §5.4. _Accept_: one board tag displaced 20 mm in the
       board data and one fake detection with random corners → both in
       `rejectedTagIds`, pose still meets P2; deterministic; ≤ 1 ms for 15 tags
       on M-series.
-- [ ] **P5 Filter**: §5.6 `createPoseFilter` (`PoseFilter` in `src/types.ts`):
+- [x] **P5 Filter**: §5.6 `createPoseFilter` (`PoseFilter` in `src/types.ts`):
       One Euro with one shared α per step, jump gating, loss hold. _Accept_
       (defaults, 30 fps): static pose with Gaussian noise of 1 mm / 0.2° RMS
       as 3D magnitudes (σ/√3 per axis) → output 3D RMS ≤ 0.55 mm / 0.10°
