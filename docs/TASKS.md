@@ -84,9 +84,10 @@ local copy in yours and note it for de-duplication after merge.
       measured from coverage match projected positions within 0.02 px mean
       (bias < 0.005 px, 16 × 16 samples) on tilted views; same seed → identical bytes; 1280 × 720 clean render ≤ 1.5 s on
       M-series.
-- [ ] **S2 Fake camera video**: `scripts/make-fake-video.ts` renders a camera
-      path into a Y4M (`C420`) for Chromium's fake capture plus a JSON ground
-      truth (pose per frame); output in `tests/out/` (gitignored).
+- [x] **S2 Fake camera video**: `scripts/make-fake-video.ts` (`pnpm fake-video`)
+      renders a periodic camera path into a Y4M (`C420jpeg`) for Chromium's
+      fake capture plus a JSON ground truth (pose per frame); output in
+      `tests/out/` (gitignored). Default 640 × 480, 90 frames, ≈ 30 s.
 
 ## WS-D Detector (`src/detect/`)
 
