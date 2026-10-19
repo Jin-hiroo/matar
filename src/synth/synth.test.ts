@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { tagCells } from '../tags/index.js';
+import { getFamilyDef, tagCells } from '../tags/index.js';
 import type { Board, Mat4, Vec2 } from '../types.js';
 import {
   intrinsicsFromFov,
@@ -11,6 +11,7 @@ import {
   randomViewPose,
   renderBoard,
 } from './index.js';
+import { familyDistance } from './patches.js';
 
 const K640 = { width: 640, height: 480, fx: 1000, fy: 1000, cx: 319.5, cy: 239.5 };
 const ONE_TAG: Board = {
@@ -199,6 +200,21 @@ describe('renderBoard', () => {
     expect(img.data.length).toBe(1280 * 720);
     expect(patches.length).toBe(40);
     expect(ms).toBeLessThan(3000);
+  });
+});
+
+describe('randomPatches', () => {
+  it('keeps tag-like squares ≥ 5 bits from every tag36h11 code in every rotation', () => {
+    const def = getFamilyDef('tag36h11');
+    // sanity: a real tag, rotated or not, is at distance 0
+    expect(familyDistance(def, tagCells('tag36h11', 42))).toBe(0);
+    const patches = randomPatches(mulberry32(5), {
+      areaMm: { min: [-100, -140], max: [100, 140] },
+      count: 300,
+    });
+    const squares = patches.filter((p) => p.cells);
+    expect(squares.length).toBeGreaterThan(50);
+    for (const p of squares) expect(familyDistance(def, p.cells!)).toBeGreaterThanOrEqual(5);
   });
 });
 
