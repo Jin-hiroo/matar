@@ -5,7 +5,8 @@
  * - Douglas–Peucker (Douglas & Peucker, Cartographica 10(2), 1973) on the
  *   closed contour with ε = 0.03 × perimeter, seeded with two far-apart contour
  *   points (the farthest point from the first, then the farthest from that).
- *   Exactly four vertices are required.
+ *   Vertices closer than ε to the chord of their neighbours are then dropped
+ *   (seeding can split an edge mid-way); exactly four must remain.
  * - Each side is re-estimated by a total-least-squares line through the contour
  *   points between its two vertices (ends trimmed, where corners are rounded),
  *   shifted half a pixel outward (contour points are the centres of the
@@ -24,6 +25,8 @@
 
 /** cos 20° and cos 160°: limits on interior angles. */
 const COS_MIN_ANGLE = Math.cos((20 * Math.PI) / 180);
+/** Douglas–Peucker vertices allowed before the collinear clean-up. */
+const MAX_DP_VERTICES = 12;
 
 export interface QuadFitOptions {
   /** minimum contour length, search-image px */
@@ -37,7 +40,7 @@ export interface QuadFitOptions {
 /** Quad fitting with preallocated scratch for contours of up to `maxPoints` points. */
 export class QuadFitter {
   private readonly stack: Int32Array;
-  private readonly verts = new Int32Array(5);
+  private readonly verts = new Int32Array(MAX_DP_VERTICES);
   private readonly lines = new Float64Array(16); // per side: cx, cy, tx, ty
   private readonly corners = new Float64Array(8);
 
@@ -105,16 +108,16 @@ export class QuadFitter {
         }
       }
       if (best < 0) continue;
-      if (nv === 4) return false; // a fifth vertex: not a quad
+      if (nv === MAX_DP_VERTICES) return false; // far too many corners for a quad
       verts[nv++] = best % n;
       stack[sp++] = s;
       stack[sp++] = best;
       stack[sp++] = best;
       stack[sp++] = e;
     }
-    if (nv !== 4) return false;
-    // sort the four vertex indices (contour order = counter-clockwise on screen)
-    for (let i = 1; i < 4; i++) {
+    if (nv < 4) return false;
+    // sort the vertex indices (contour order = counter-clockwise on screen)
+    for (let i = 1; i < nv; i++) {
       const v = verts[i]!;
       let j = i - 1;
       while (j >= 0 && verts[j]! > v) {
@@ -122,6 +125,33 @@ export class QuadFitter {
         j--;
       }
       verts[j + 1] = v;
+    }
+    // The far-point seeds can be adjacent corners; the next split then lands
+    // mid-edge and leaves a nearly collinear vertex (or two vertices on one
+    // rounded corner). Drop the vertex nearest its neighbours' chord while that
+    // distance is < ε.
+    while (nv > 4) {
+      let drop = -1;
+      let dropD2 = eps2;
+      for (let i = 0; i < nv; i++) {
+        const a = verts[i > 0 ? i - 1 : nv - 1]!;
+        const v = verts[i]!;
+        const b = verts[i < nv - 1 ? i + 1 : 0]!;
+        const ax = xs[a]!;
+        const ay = ys[a]!;
+        const dx = xs[b]! - ax;
+        const dy = ys[b]! - ay;
+        const len2 = dx * dx + dy * dy;
+        const c = (xs[v]! - ax) * dy - (ys[v]! - ay) * dx;
+        const d2 = len2 > 0 ? (c * c) / len2 : 0;
+        if (d2 < dropD2) {
+          dropD2 = d2;
+          drop = i;
+        }
+      }
+      if (drop < 0) return false; // ≥ 5 real corners
+      for (let i = drop; i < nv - 1; i++) verts[i] = verts[i + 1]!;
+      nv--;
     }
 
     // centroid of the vertices, to orient the side normals outward

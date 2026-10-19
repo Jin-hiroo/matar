@@ -250,6 +250,48 @@ describe('QuadFitter', () => {
     for (let i = 0; i < 8; i++) expect(two[i]).toBeCloseTo((one[i]! + 0.5) * 2 - 0.5, 9);
   });
 
+  it('drops a mid-edge vertex left by far-point seeding (adjacent seed corners)', () => {
+    // As in two tags missed in a D3 run: the contour starts near TR, the
+    // farthest point from it is BL, and the farthest from BL is the adjacent BR.
+    // Douglas–Peucker then splits the top edge at a 1 px bump mid-way.
+    const ccw: [number, number][] = [
+      [6, 0], // TL
+      [0, 30], // BL
+      [55, 30], // BR
+      [40, 0], // TR
+      [30, -1], // bump on the top edge
+    ];
+    const pts: [number, number][] = [];
+    for (let i = 0; i < ccw.length; i++) {
+      const a = ccw[i]!;
+      const b = ccw[(i + 1) % ccw.length]!;
+      const steps = Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]));
+      for (let s = 0; s < steps; s++) {
+        pts.push([
+          Math.round(a[0] + ((b[0] - a[0]) * s) / steps),
+          Math.round(a[1] + ((b[1] - a[1]) * s) / steps),
+        ]);
+      }
+    }
+    const start = pts.findIndex((p) => p[0] === 37 && p[1] === 0);
+    const order = [...pts.slice(start), ...pts.slice(0, start)];
+    const xs = Int32Array.from(order, (p) => p[0]);
+    const ys = Int32Array.from(order, (p) => p[1]);
+    const out = new Float64Array(8);
+    const fitter = new QuadFitter(order.length);
+    const opts = { minPerimeterPx: 32, minSidePx: 8, decimate: 1 };
+    expect(fitter.fit(xs, ys, order.length, opts, out)).toBe(true);
+    // clockwise from TL: TL, TR, BR, BL (a seed for the edge refinement: within 2 px)
+    const want = [6, 0, 40, 0, 55, 30, 0, 30];
+    const tl = [0, 1, 2, 3].find((i) => Math.hypot(out[2 * i]! - 6, out[2 * i + 1]!) < 2)!;
+    for (let i = 0; i < 4; i++) {
+      const j = (tl + i) & 3;
+      expect(
+        Math.hypot(out[2 * j]! - want[2 * i]!, out[2 * j + 1]! - want[2 * i + 1]!),
+      ).toBeLessThan(2);
+    }
+  });
+
   it('rejects triangles, pentagons, slivers and tiny squares', () => {
     expect(
       fitAll(
