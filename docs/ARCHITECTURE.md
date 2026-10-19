@@ -207,10 +207,11 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
    "unknown" (neither black nor white). Output: `Uint8Array` labels
    (0 black, 255 white, 127 unknown).
 3. **Candidates**: border following (Suzuki–Abe 1985) on black regions,
-   outer borders only, perimeter ≥ `minPerimeterPx` (default 32); Douglas–
-   Peucker (ε = 0.03 × perimeter); keep convex 4-gons with every side ≥
-   `minSidePx` (default 8), interior angles 20°–160°, not touching the image
-   border. Corners ordered clockwise in the image (y down). The tag's black
+   outer borders only, perimeter ≥ 32 px; Douglas–Peucker (ε = 0.03 ×
+   perimeter); drop near-collinear vertices (Douglas–Peucker can split a
+   straight edge into two), then keep convex 4-gons with every side ≥ 8 px
+   (both constants internal, measured on the decimated image; an odd last row
+   or column is dropped when decimating), interior angles 20°–160°, not touching the image border. Corners ordered clockwise in the image (y down). The tag's black
    border is a black component whose outer border is the square; the white ring
    keeps it apart from other ink.
 4. **Edge refinement** (AprilTag `refine_edges`, integer-centre convention):
@@ -219,7 +220,8 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
    **linearised** first through a 256-entry LUT `lin[v] = (v/255)^edgeGamma`
    (option `edgeGamma`, default 2.2, 1 = off), weight each step by the squared
    gradient, discard steps whose gradient has the wrong sign (must go black
-   inside → white outside); the weighted mean is the edge point. Why linearise:
+   inside → white outside); the weighted mean is the edge point. Two passes;
+   sample points stay ≈ 4 px (at most 20 % of the side) away from the corners. Why linearise:
    optics blur in linear light and the camera then gamma-encodes, so gradients
    of the encoded values peak on the ink side; that biases edges ≈ 0.5 px inward
    and corners ≈ 0.7 px at blur σ 0.8–1.2 px (measured on `renderBoard`, which
@@ -230,7 +232,10 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
    the refined corners; bilinear samples at each cell centre, with 0.25
    Laplacian sharpening over the cell grid (AprilTag). Per-tag threshold:
    midpoint of the means of the black border cells and the white ring cells
-   (sampled just outside the square). Build the 36-bit code (§3 bit order),
+   (sampled just outside the square). Cells are sampled through the same
+   `edgeGamma` linearisation; `margin` is reported in encoded DN. Reject
+   unless ≥ 75 % of the white-ring samples are bright and ring − border
+   contrast ≥ `minContrast`. Build the 36-bit code (§3 bit order),
    match against the board's codes in all four rotations by popcount
    (`src/detect/decode.ts`); accept if distance ≤ `maxCorrectedBits` and
    ≥ 75 % of border samples are dark. `margin` = mean |sample − threshold| over

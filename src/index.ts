@@ -26,3 +26,4 @@ export {
   projectionFromIntrinsics,
   type PoseOptions,
 } from './pose/index.js';
+export { createDetector } from './detect/index.js';

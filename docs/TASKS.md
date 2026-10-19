@@ -122,7 +122,11 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       tags with IDs not on the board, random tag-like squares) → **0** detections of board IDs
       in CI; `pnpm test:long` runs 10 000. Tune `minContrast` and border checks
       only with these tests.
-- [ ] **D5 Performance** (batch 2): `decimate: 'auto'` (§4.1 step 1, then the
+- [ ] **D5 Performance** (batch 2). Measured at D4 (M2, Node 24, 1280 × 720, 15
+      tags, median): decimate 1 clean 7.1 ms, with clutter + 2 DN noise 20 ms
+      (noise on flat paper exceeds `minContrast` 10, ≈ 240 specks per frame);
+      decimate 2: 3.0 / 3.9 ms. Candidates: `'auto'` decimation, a higher
+      default `minContrast`, a despeckle step. `decimate: 'auto'` (§4.1 step 1, then the
       default); `tests/bench/detect.bench.ts` (vitest 5: `bench` is a test
       fixture, see `tests/bench/pose.bench.ts`; `pnpm bench`); report the
       median for 1280 × 720 with 15 tags on M-series (target ≤ 4 ms). Optimise
