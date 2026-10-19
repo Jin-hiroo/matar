@@ -19,3 +19,10 @@ export {
   type RectMm,
   type TagSvgOptions,
 } from './board/index.js';
+export {
+  createPoseFilter,
+  estimatePose,
+  focalPrior,
+  projectionFromIntrinsics,
+  type PoseOptions,
+} from './pose/index.js';

@@ -270,6 +270,11 @@ For every detected tag present in the board: four pairs
    parallel views, Schweighofer & Pinz 2006) and a previous pose exists, keep
    the candidate nearer the previous pose (rotation angle). A whole mat in view
    resolves the ambiguity by itself; it matters for close-ups of 1–2 tags.
+   Known weakness: a single small, distant tag has only 2 residual degrees of
+   freedom, so the ratio is noisy (20 mm tag at 60 cm, σ 0.3 px: the right
+   branch 87 % of the time with a previous pose, 78 % without; a ratio of 10
+   gives 99.4 %). The test case (40 mm at 30 cm) is at 100 %. A threshold
+   scaled by residual degrees of freedom and noise is listed under Later.
 
 The OpenCV IPPE port (`ippe.cpp`, BSD-3, Toby Collins) is a valid reference;
 if code is ported rather than re-derived from the paper, add its notice to
@@ -674,7 +679,9 @@ export function estimatePose(
   board: Board,
   intrinsics: CameraIntrinsics,
   previous?: Mat4, // boardFromCamera of the previous frame, for the ambiguity rule (§5.2)
-): BoardPose | null;
+  options?: PoseOptions, // inlierPx 4, huberPx 1.5, ambiguityRatio 1.5, maxIterations 10,
+  //                        dropMinPx 3, dropMedianFactor 3 (§5.2–5.4)
+): BoardPose | null; // not re-entrant (module-level scratch buffers); one call at a time
 export function createPoseFilter(opts?: PoseFilterOptions): PoseFilter; // §5.6
 export function createFocalEstimator(initial: {
   intrinsics: CameraIntrinsics;

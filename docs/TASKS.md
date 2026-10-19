@@ -123,7 +123,8 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       in CI; `pnpm test:long` runs 10 000. Tune `minContrast` and border checks
       only with these tests.
 - [ ] **D5 Performance** (batch 2): `decimate: 'auto'` (§4.1 step 1, then the
-      default); `tests/bench/detect.bench.ts`; report the
+      default); `tests/bench/detect.bench.ts` (vitest 5: `bench` is a test
+      fixture, see `tests/bench/pose.bench.ts`; `pnpm bench`); report the
       median for 1280 × 720 with 15 tags on M-series (target ≤ 4 ms). Optimise
       only measured hot spots; if far over, propose ROI tracking or WASM SIMD in
       the report instead of doing it.
@@ -239,6 +240,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## Later (not v0.1)
 
-ROI tracking · WASM SIMD stages · worker-side `MediaStreamTrackProcessor` ·
+ROI tracking · WASM SIMD stages · a degrees-of-freedom-aware ambiguity
+threshold for single small tags (§5.2) · worker-side `MediaStreamTrackProcessor` ·
 principal point and k1 in the focal bundle · per-tile offset estimation for
 tiled boards · gravity to break the planar ambiguity · more families.
