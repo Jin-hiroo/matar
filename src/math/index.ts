@@ -10,3 +10,4 @@ export * from './rotation.js';
 export * from './svd.js';
 export * from './cholesky.js';
 export * from './homography.js';
+export * from './lm.js';

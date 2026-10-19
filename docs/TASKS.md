@@ -122,7 +122,7 @@ local copy in yours and note it for de-duplication after merge.
       `projectionFromIntrinsics` (§2.6). _Accept_: identities to 1e-12;
       projection matrix matches pinhole `u, v` to 1e-9 px; DLT exact on exact
       data, stable for nearly degenerate (collinear-ish) inputs (no NaN).
-- [ ] **P2 IPPE + LM**: §5.2–5.3. _Accept_: exact correspondences recover the
+- [x] **P2 IPPE + LM**: §5.2–5.3. _Accept_: exact correspondences recover the
       pose to 1e-6 mm / 1e-6°; 12-tag A4 board at 40 cm, tilt 20–50°, corner
       noise σ = 0.15 px: camera position RMS ≤ 0.5 mm, rotation ≤ 0.1°, overlay
       error of a point 100 mm above the board centre (difference of its
