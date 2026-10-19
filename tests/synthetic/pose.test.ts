@@ -20,11 +20,12 @@ import {
   ippeRotations,
   ippeTranslation,
 } from '../../src/pose/index.js';
-import { intrinsicsFromFov, randomViewPose } from '../../src/synth/camera.js';
+import { intrinsicsFromFov, lookAtPose, randomViewPose } from '../../src/synth/camera.js';
 import { mulberry32, normalSampler } from '../../src/synth/random.js';
-import type { Board, Mat4, Vec3 } from '../../src/types.js';
+import type { Board, Mat4, TagDetection, Vec2, Vec3 } from '../../src/types.js';
 import {
   a4Ring12,
+  a4Ring15,
   DEG,
   fmt,
   observe,
@@ -262,5 +263,170 @@ describe('P3 planar ambiguity', () => {
     );
     // reported, see the report: the 1.5 ratio rule is weak with a single tag's 2 residual DoF
     expect(withPrev).toBeGreaterThan(without);
+  });
+});
+
+describe('P4 outlier tags', () => {
+  /** A4 with tag `index` moved by 20 mm in the board data (the print is unchanged). */
+  function displaced(index: number, dirRad: number): Board {
+    return {
+      family: A4.family,
+      tags: A4.tags.map((t, i) =>
+        i === index
+          ? {
+              ...t,
+              centerMm: [
+                t.centerMm[0] + 20 * Math.cos(dirRad),
+                t.centerMm[1] + 20 * Math.sin(dirRad),
+              ] as Vec2,
+            }
+          : t,
+      ),
+    };
+  }
+
+  it('rejects a displaced board tag and a fake detection; the pose still meets P2', () => {
+    const seed = 404;
+    const rng = mulberry32(seed);
+    const noise = normalSampler(mulberry32(seed + 1));
+    const n = LONG ? 5000 : 500;
+    const pos: number[] = [];
+    const rot: number[] = [];
+    const overlay: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const truth = randomViewPose(rng, {
+        distanceMm: [400, 400],
+        tiltDeg: [20, 50],
+        targetBoxMm: { min: [-10, -10], max: [10, 10] },
+        rollDeg: [-15, 15],
+      });
+      const dets = observe(A4, K, truth, noise, 0.15);
+      // pick two different visible tags: one displaced in the board data, one replaced by a fake
+      const a = Math.floor(rng() * dets.length);
+      const b = (a + 1 + Math.floor(rng() * (dets.length - 1))) % dets.length;
+      const movedId = dets[a]!.id;
+      const fakeId = dets[b]!.id;
+      const board = displaced(
+        A4.tags.findIndex((t) => t.id === movedId),
+        rng() * 2 * Math.PI,
+      );
+      dets[b] = {
+        ...dets[b]!,
+        corners: [0, 1, 2, 3].map(() => [rng() * (K.width - 1), rng() * (K.height - 1)]) as [
+          Vec2,
+          Vec2,
+          Vec2,
+          Vec2,
+        ],
+      };
+      const pose = estimatePose(dets, board, K);
+      expect(pose, `seed ${seed} case ${i}`).not.toBeNull();
+      expect(pose!.rejectedTagIds.sort(), `seed ${seed} case ${i}`).toEqual(
+        [movedId, fakeId].sort(),
+      );
+      expect(pose!.usedTagIds.length, `seed ${seed} case ${i}`).toBe(dets.length - 2);
+      const e = poseError(pose!.boardFromCamera, truth);
+      pos.push(e.posMm);
+      rot.push(e.rotDeg);
+      overlay.push(overlayErrorMm(K, pose!.boardFromCamera, truth, [0, 100, 0]));
+    }
+    const r = { pos: rms(pos), rot: rms(rot), overlay: rms(overlay) };
+    console.log(
+      `P4 outliers (${n} cases, seed ${seed}): position RMS ${fmt(r.pos)} mm, rotation RMS ${fmt(r.rot)}°, overlay at 100 mm RMS ${fmt(r.overlay)} mm`,
+    );
+    expect(r.pos, `seed ${seed}`).toBeLessThanOrEqual(0.5);
+    expect(r.rot, `seed ${seed}`).toBeLessThanOrEqual(0.1);
+    expect(r.overlay, `seed ${seed}`).toBeLessThanOrEqual(0.3);
+  });
+
+  it('drops tags with RMS > max(3 px, 3 × median) after the fit and refits', () => {
+    const seed = 405;
+    const rng = mulberry32(seed);
+    const noise = normalSampler(mulberry32(seed + 1));
+    for (let i = 0; i < 200; i++) {
+      const truth = randomViewPose(rng, {
+        distanceMm: [400, 400],
+        tiltDeg: [20, 50],
+        rollDeg: [-15, 15],
+      });
+      const dets = observe(A4, K, truth, noise, 0.15);
+      const a = Math.floor(rng() * dets.length);
+      const movedId = dets[a]!.id;
+      // 5 mm ≈ 12 px off: a wide consensus threshold lets it through, the post-fit rule must catch it
+      const board: Board = {
+        family: A4.family,
+        tags: A4.tags.map((t) =>
+          t.id === movedId ? { ...t, centerMm: [t.centerMm[0] + 5, t.centerMm[1]] as Vec2 } : t,
+        ),
+      };
+      const pose = estimatePose(dets, board, K, undefined, { inlierPx: 100 })!;
+      expect(pose.rejectedTagIds, `seed ${seed} case ${i}`).toEqual([movedId]);
+      expect(poseError(pose.boardFromCamera, truth).posMm, `seed ${seed} case ${i}`).toBeLessThan(
+        2,
+      );
+      // clean detections: nothing dropped (the 3 px floor protects precise fits)
+      expect(estimatePose(dets, A4, K, undefined, { inlierPx: 100 })!.rejectedTagIds).toEqual([]);
+    }
+  });
+
+  it('rejects IDs not on the board, keeps the higher-margin duplicate, and handles 1–2 tags without consensus', () => {
+    const truth = lookAtPose([30, 380, 120], [0, 0, 0]);
+    const dets = observe(A4, K, truth, null, 0);
+    const unknown: TagDetection = { ...dets[0]!, id: 586 };
+    const dupBad: TagDetection = {
+      ...dets[1]!,
+      corners: dets[1]!.corners.map(([u, v]) => [u + 40, v]) as [Vec2, Vec2, Vec2, Vec2],
+      margin: 10,
+    };
+    const pose = estimatePose([unknown, dupBad, ...dets], A4, K)!;
+    expect(pose.rejectedTagIds).toEqual([586]);
+    expect(pose.usedTagIds.sort()).toEqual(dets.map((d) => d.id).sort());
+    expect(poseError(pose.boardFromCamera, truth).posMm).toBeLessThan(1e-6);
+    // two tags: used as they are
+    const two = estimatePose(dets.slice(0, 2), A4, K)!;
+    expect(two.usedTagIds).toEqual([dets[0]!.id, dets[1]!.id]);
+    expect(poseError(two.boardFromCamera, truth).posMm).toBeLessThan(1e-6);
+    expect(estimatePose([unknown], A4, K)).toBeNull();
+    expect(estimatePose([], A4, K)).toBeNull();
+  });
+
+  it('is deterministic (same input → identical output, scratch reuse included)', () => {
+    const seed = 406;
+    const rng = mulberry32(seed);
+    const noise = normalSampler(mulberry32(seed + 1));
+    const views = Array.from({ length: 20 }, () => {
+      const truth = randomViewPose(rng, {
+        distanceMm: [300, 500],
+        tiltDeg: [10, 55],
+        rollDeg: [0, 360],
+      });
+      return observe(A4, K, truth, noise, 0.5);
+    });
+    const first = views.map((d) => estimatePose(d, A4, K));
+    const again = views.map((d) => estimatePose(d, A4, K));
+    for (let i = 0; i < views.length; i++) {
+      expect(again[i], `seed ${seed} view ${i}`).toEqual(first[i]);
+      // a different call in between must not leak state
+      estimatePose(views[(i + 7) % views.length]!, A4, K);
+      expect(estimatePose(views[i]!, A4, K), `seed ${seed} view ${i}`).toEqual(first[i]);
+    }
+  });
+
+  it('runs in ≤ 1 ms for 15 tags (reported; asserted loosely)', () => {
+    const board = a4Ring15();
+    const noise = normalSampler(mulberry32(407));
+    const truth = lookAtPose([40, 360, 180], [0, 0, 0]);
+    const dets = observe(board, K, truth, noise, 0.15);
+    expect(dets.length).toBe(15);
+    for (let i = 0; i < 200; i++) estimatePose(dets, board, K); // warm up the JIT
+    const times: number[] = [];
+    for (let i = 0; i < 300; i++) {
+      const t0 = performance.now();
+      estimatePose(dets, board, K);
+      times.push(performance.now() - t0);
+    }
+    const med = quantile(times, 0.5);
+    console.log(`P4 timing, 15 tags: median ${fmt(med)} ms, p90 ${fmt(quantile(times, 0.9))} ms`);
+    expect(med).toBeLessThan(10);
   });
 });

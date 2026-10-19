@@ -131,7 +131,7 @@ local copy in yours and note it for de-duplication after merge.
 - [x] **P3 Ambiguity**: single 40 mm tag at 30 cm, tilt ≥ 20°, σ = 0.15 px,
       previous pose = truth perturbed by 2°: correct branch ≥ 99 %; overlay
       error on the board ≤ 1 mm.
-- [ ] **P4 Outliers**: §5.4. _Accept_: one board tag displaced 20 mm in the
+- [x] **P4 Outliers**: §5.4. _Accept_: one board tag displaced 20 mm in the
       board data and one fake detection with random corners → both in
       `rejectedTagIds`, pose still meets P2; deterministic; ≤ 1 ms for 15 tags
       on M-series.
