@@ -62,7 +62,7 @@ Vite (demo app only) · three.js (optional peer, `matar/three` only) · size-lim
 ```bash
 pnpm install
 pnpm test          # vitest (unit + synthetic)
-pnpm test:e2e      # playwright, Chromium with a fake camera video
+pnpm test:e2e      # playwright: the demo with a fake camera video, and the WebGL texture-ring test
 pnpm bench         # vitest bench (tests/bench, timings reported, not gated)
 pnpm lint && pnpm typecheck
 pnpm build         # tsc → dist/

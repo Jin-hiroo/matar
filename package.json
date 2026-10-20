@@ -45,7 +45,6 @@
     "test:long": "MATAR_LONG=1 vitest run",
     "bench": "vitest bench --run",
     "test:e2e": "playwright test",
-    "test:three": "playwright test -c playwright.three.config.ts",
     "fake-video": "tsx scripts/make-fake-video.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

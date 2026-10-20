@@ -478,7 +478,11 @@ normative types are `MainToWorker`, `WorkerToMain` and `WorkerOptions` in
   detections, the raw pose, **the intrinsics and `focalSource` the frame was
   solved with**, timings, the gray buffer back for reuse, and with `debug` the
   test video's `debugFrameIndex`); `intrinsics` (a new estimate); `error`
-  (code, message).
+  (code, message); `fallback` (the frame was opaque and can't be copied:
+  the tracker switches to the canvas path). Every `frame` gets exactly one
+  reply (`result`, `fallback` or `error`), so the in-flight flag always
+  clears. Results also carry `frame: FrameInfo` (path, format, coded size,
+  applied rotation) and, with `debug`, a ≤ 160 px gray thumbnail.
 
 The worker is spawned with
 `new Worker(new URL('../worker/main.js', import.meta.url), { type: 'module' })`
@@ -695,6 +699,7 @@ export function boardSvg(
 
 // tracking (src/tracker, src/camera)
 export function createTracker(opts: TrackerOptions): Tracker; // sync; start() opens the camera
+// (a second, internal `env` argument injects the browser for unit tests)
 export function listCameras(): Promise<{ deviceId: string; label: string; rear: boolean }[]>;
 // labels are empty until camera permission was granted once
 
