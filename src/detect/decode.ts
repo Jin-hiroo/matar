@@ -13,6 +13,9 @@
 import { cellsToCode, codeToCells, popcount32, rotateCellsCw } from '../tags/cells.js';
 import type { FamilyDef } from '../tags/families.js';
 
+/** Bound once: the match loop must not read an imported binding per entry (module runners wrap imports in getters). */
+const popcount = popcount32;
+
 export class CodeMatcher {
   /** high and low code words per entry */
   hi = new Uint32Array(0);
@@ -79,9 +82,9 @@ export class CodeMatcher {
     const H = this.hi;
     const L = this.lo;
     for (let e = 0; e < this.count; e++) {
-      const dh = popcount32((hi ^ H[e]!) >>> 0);
+      const dh = popcount((hi ^ H[e]!) >>> 0);
       if (dh > maxBits) continue;
-      const d = dh + popcount32((lo ^ L[e]!) >>> 0);
+      const d = dh + popcount((lo ^ L[e]!) >>> 0);
       if (d <= maxBits) {
         this.distance = d;
         return e;

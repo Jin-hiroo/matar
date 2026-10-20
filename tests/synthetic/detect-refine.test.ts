@@ -30,7 +30,8 @@ function check(o: FrameRunOptions, rmsMaxPx: number, maxPx?: number): void {
   if (maxPx !== undefined) expect(max, msg).toBeLessThanOrEqual(maxPx);
 }
 
-describe('detector corner accuracy (D2)', () => {
+// heavy seeded renders: when the whole suite runs in parallel they can land on efficiency cores
+describe('detector corner accuracy (D2)', { timeout: 120_000 }, () => {
   it('clean renders: RMS ≤ 0.1 px, max ≤ 0.25 px', () => {
     // the headline number: full 8 × 8 supersampling for the ground truth
     check({ ...BASE, seed: 201, blurSigmaPx: 0.8, noiseSigma: 0, supersample: 8 }, 0.1, 0.25);

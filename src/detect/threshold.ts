@@ -7,7 +7,13 @@
  *   (p + 0.5)·2 − 0.5 (pixel centres at integers, §2.4).
  * - `adaptiveThreshold`: 4 × 4 px tiles, each tile's min and max, extrema
  *   dilated over the 3 × 3 tile neighbourhood, threshold (min + max) / 2.
- *   Pixels whose local max − min < `minContrast` are "unknown". The labels are
+ *   Pixels whose local max − min < `minContrast` are "unknown". With
+ *   `blockExtrema` (the detector's choice) a full tile's extrema are taken
+ *   over its four 2 × 2 block means: that halves the noise in max − min, so
+ *   flat paper with 2–4 DN sensor noise stays unknown instead of breaking into
+ *   large random black clusters (each pixel is still compared with the
+ *   threshold at full resolution). Real edges keep their extrema, since blocks
+ *   lie wholly on each side of an edge. The labels are
  *   written into a padded buffer ((w + 2) × (h + 2), a 1-px WHITE frame) that
  *   the border follower then uses as its work image.
  *
@@ -59,6 +65,14 @@ export function thresholdScratchSize(w: number, h: number): number {
  * Labels every pixel of `img` (w × h, stride w) as BLACK, WHITE or UNKNOWN and
  * writes the labels into `out`, a padded (w + 2) × (h + 2) buffer whose 1-px
  * frame is set to WHITE. Pixel (x, y) goes to `out[(y + 1)·(w + 2) + x + 1]`.
+ *
+ * `blockExtrema`: full tiles take their extrema over 2 × 2 block means instead
+ * of pixels (see the header); partial tiles at the right and bottom edges use
+ * pixels.
+ *
+ * Written branch-free in the per-pixel loops (min/max and the label are bit
+ * tricks on int32): with sensor noise, data-dependent branches mispredict and
+ * made this stage 2–4× slower.
  */
 export function adaptiveThreshold(
   img: Uint8Array,
@@ -67,48 +81,94 @@ export function adaptiveThreshold(
   minContrast: number,
   out: Uint8Array,
   s: ThresholdScratch,
+  blockExtrema = false,
 ): void {
   const tw = Math.ceil(w / TILE_PX);
   const th = Math.ceil(h / TILE_PX);
-  const nt = tw * th;
   const { tileMin, tileMax, dilMin, dilMax } = s;
-  tileMin.fill(255, 0, nt);
-  tileMax.fill(0, 0, nt);
 
-  // tile extrema (partial tiles at the right and bottom edges use the pixels they have)
-  for (let y = 0; y < h; y++) {
-    const row = y * w;
-    const tRow = (y >> 2) * tw;
-    for (let x = 0; x < w; x++) {
-      const v = img[row + x]!;
-      const t = tRow + (x >> 2);
-      if (v < tileMin[t]!) tileMin[t] = v;
-      if (v > tileMax[t]!) tileMax[t] = v;
-    }
-  }
-
-  // 3 × 3 tile dilation of the extrema
+  // tile extrema
   for (let ty = 0; ty < th; ty++) {
-    const y0 = ty > 0 ? ty - 1 : 0;
-    const y1 = ty < th - 1 ? ty + 1 : th - 1;
+    const y0 = ty * TILE_PX;
+    const rows = h - y0 < TILE_PX ? h - y0 : TILE_PX;
     for (let tx = 0; tx < tw; tx++) {
-      const x0 = tx > 0 ? tx - 1 : 0;
-      const x1 = tx < tw - 1 ? tx + 1 : tw - 1;
+      const x0 = tx * TILE_PX;
+      const cols = w - x0 < TILE_PX ? w - x0 : TILE_PX;
       let lo = 255;
       let hi = 0;
-      for (let yy = y0; yy <= y1; yy++) {
-        for (let xx = x0; xx <= x1; xx++) {
-          const t = yy * tw + xx;
-          if (tileMin[t]! < lo) lo = tileMin[t]!;
-          if (tileMax[t]! > hi) hi = tileMax[t]!;
+      let d: number;
+      if (blockExtrema && rows === TILE_PX && cols === TILE_PX) {
+        for (let r = 0; r < TILE_PX; r += 2) {
+          const i = (y0 + r) * w + x0;
+          let v = (img[i]! + img[i + 1]! + img[i + w]! + img[i + w + 1]! + 2) >> 2;
+          d = v - lo;
+          lo += d & (d >> 31);
+          d = hi - v;
+          hi -= d & (d >> 31);
+          v = (img[i + 2]! + img[i + 3]! + img[i + w + 2]! + img[i + w + 3]! + 2) >> 2;
+          d = v - lo;
+          lo += d & (d >> 31);
+          d = hi - v;
+          hi -= d & (d >> 31);
+        }
+      } else {
+        for (let r = 0; r < rows; r++) {
+          let i = (y0 + r) * w + x0;
+          for (let c = 0; c < cols; c++, i++) {
+            const v = img[i]!;
+            d = v - lo;
+            lo += d & (d >> 31);
+            d = hi - v;
+            hi -= d & (d >> 31);
+          }
         }
       }
-      dilMin[ty * tw + tx] = lo;
-      dilMax[ty * tw + tx] = hi;
+      tileMin[ty * tw + tx] = lo;
+      tileMax[ty * tw + tx] = hi;
     }
   }
 
-  // labels, 4 pixels per tile at a time
+  // 3 × 3 tile dilation, separable: rows into dil*, then columns back into tile*
+  for (let ty = 0; ty < th; ty++) {
+    const row = ty * tw;
+    for (let tx = 0; tx < tw; tx++) {
+      const a = row + (tx > 0 ? tx - 1 : 0);
+      const b = row + (tx < tw - 1 ? tx + 1 : tw - 1);
+      let lo = tileMin[row + tx]!;
+      let hi = tileMax[row + tx]!;
+      let d = tileMin[a]! - lo;
+      lo += d & (d >> 31);
+      d = tileMin[b]! - lo;
+      lo += d & (d >> 31);
+      d = hi - tileMax[a]!;
+      hi -= d & (d >> 31);
+      d = hi - tileMax[b]!;
+      hi -= d & (d >> 31);
+      dilMin[row + tx] = lo;
+      dilMax[row + tx] = hi;
+    }
+  }
+  for (let ty = 0; ty < th; ty++) {
+    const up = (ty > 0 ? ty - 1 : 0) * tw;
+    const row = ty * tw;
+    const down = (ty < th - 1 ? ty + 1 : th - 1) * tw;
+    for (let tx = 0; tx < tw; tx++) {
+      let lo = dilMin[row + tx]!;
+      let hi = dilMax[row + tx]!;
+      let d = dilMin[up + tx]! - lo;
+      lo += d & (d >> 31);
+      d = dilMin[down + tx]! - lo;
+      lo += d & (d >> 31);
+      d = hi - dilMax[up + tx]!;
+      hi -= d & (d >> 31);
+      d = hi - dilMax[down + tx]!;
+      hi -= d & (d >> 31);
+      tileMin[row + tx] = lo;
+      tileMax[row + tx] = hi;
+    }
+  }
+
+  // labels: (thresh − v) >> 31 is −1 (→ WHITE = 255) when v > thresh, else 0 (BLACK)
   const stride = w + 2;
   out.fill(WHITE, 0, stride);
   out.fill(WHITE, (h + 1) * stride, (h + 2) * stride);
@@ -119,15 +179,24 @@ export function adaptiveThreshold(
     out[o + w] = WHITE;
     const tRow = (y >> 2) * tw;
     for (let tx = 0; tx < tw; tx++) {
-      const lo = dilMin[tRow + tx]!;
-      const hi = dilMax[tRow + tx]!;
+      const lo = tileMin[tRow + tx]!;
+      const hi = tileMax[tRow + tx]!;
       const x0 = tx * TILE_PX;
       const x1 = x0 + TILE_PX < w ? x0 + TILE_PX : w;
       if (hi - lo < minContrast) {
         for (let x = x0; x < x1; x++) out[o + x] = UNKNOWN;
       } else {
-        const thresh = lo + ((hi - lo) >> 1);
-        for (let x = x0; x < x1; x++) out[o + x] = img[row + x]! > thresh ? WHITE : BLACK;
+        const t = lo + ((hi - lo) >> 1);
+        if (x1 - x0 === TILE_PX) {
+          const i = row + x0;
+          const p = o + x0;
+          out[p] = ((t - img[i]!) >> 31) & WHITE;
+          out[p + 1] = ((t - img[i + 1]!) >> 31) & WHITE;
+          out[p + 2] = ((t - img[i + 2]!) >> 31) & WHITE;
+          out[p + 3] = ((t - img[i + 3]!) >> 31) & WHITE;
+        } else {
+          for (let x = x0; x < x1; x++) out[o + x] = ((t - img[row + x]!) >> 31) & WHITE;
+        }
       }
     }
   }

@@ -2,11 +2,13 @@
  * The tag detector (ARCHITECTURE.md §4): gray frame → decoded tags with
  * sub-pixel corners.
  *
- * Pipeline per frame (§4.1): optional 2 × 2 box decimation → adaptive threshold
- * → border following → Douglas–Peucker quads → edge refinement on the
- * full-resolution image → decode against the board's codes → corner order →
- * duplicate removal. Each candidate is refined and decoded as soon as its
- * border has been followed, so no candidate list is needed.
+ * Pipeline per frame (§4.1): optional 2 × 2 box decimation (`'auto'` by
+ * default: chosen per call from the previous call's result) → adaptive
+ * threshold (tile extrema over 2 × 2 block means) → border following →
+ * Douglas–Peucker quads → edge refinement on the full-resolution image →
+ * decode against the board's codes → corner order → duplicate removal. Each
+ * candidate is refined and decoded as soon as its border has been followed, so
+ * no candidate list is needed.
  *
  * All buffers belong to the detector and are reused; they are reallocated only
  * when the frame size changes (`allocations` counts it, for tests).
@@ -32,7 +34,11 @@ import {
   type ThresholdScratch,
 } from './threshold.js';
 
-export const DEFAULT_MIN_CONTRAST = 10;
+/**
+ * Default `minContrast`, DN (ARCHITECTURE.md says 10; 15 with block extrema keeps
+ * 2–4 DN sensor noise on flat paper unknown, D5).
+ */
+export const DEFAULT_MIN_CONTRAST = 15;
 export const DEFAULT_EDGE_GAMMA = 2.2;
 /** Minimum outer-border length, search-image px (§4.1 step 3). */
 export const MIN_PERIMETER_PX = 32;
@@ -41,6 +47,11 @@ export const MIN_SIDE_PX = 8;
 
 /** Placeholder for `gray` between calls (so the frame isn't retained). */
 const NO_IMAGE = new Uint8Array(0);
+
+/** 'auto' decimation: a full-resolution search at least every this many calls (§4.1 step 1). */
+export const AUTO_FULL_RES_EVERY = 8;
+/** 'auto' decimation: ×2 only if the previous call's smallest cell was ≥ this, full-res px. */
+export const AUTO_MIN_CELL_PX = 8;
 
 /** Most candidate quads kept for `lastCandidates()` (debugging and tests). */
 const MAX_DEBUG_QUADS = 512;
@@ -64,7 +75,10 @@ export class TagDetector implements Detector {
   readonly def: FamilyDef;
   readonly maxCorrectedBits: number;
   readonly minContrast: number;
-  readonly decimate: 1 | 2;
+  /** the `decimate` option: fixed 1 or 2, or 'auto' (chosen per call) */
+  readonly decimateMode: 1 | 2 | 'auto';
+  /** decimation used by the last `detect` call */
+  lastDecimate: 1 | 2 = 1;
   /** number of times the frame buffers were (re)allocated */
   allocations = 0;
   readonly stats: DetectorStats = { borders: 0, quads: 0, refined: 0, read: 0, decoded: 0 };
@@ -75,8 +89,11 @@ export class TagDetector implements Detector {
   private readonly quadOpts: QuadFitOptions;
   private width = -1;
   private height = -1;
-  private searchW = 0;
-  private searchH = 0;
+  /** calls since construction ('auto': every 8th is full resolution) */
+  private calls = 0;
+  /** tags found by the previous call, and its smallest cell edge, full-res px */
+  private prevCount = 0;
+  private prevMinCellPx = 0;
   private dec = new Uint8Array(0);
   private labels = new Uint8Array(0);
   private scratch: ThresholdScratch = {
@@ -85,7 +102,9 @@ export class TagDetector implements Detector {
     dilMin: new Uint8Array(0),
     dilMax: new Uint8Array(0),
   };
-  private follower: BorderFollower | null = null;
+  /** border followers for the full-resolution and the ×2 search images */
+  private follower1: BorderFollower | null = null;
+  private follower2: BorderFollower | null = null;
   private fitter: QuadFitter | null = null;
   private readonly quad = new Float64Array(8);
   private readonly refined = new Float64Array(8);
@@ -108,13 +127,14 @@ export class TagDetector implements Detector {
     }
     this.maxCorrectedBits = maxBits;
     this.minContrast = o.minContrast ?? DEFAULT_MIN_CONTRAST;
-    // 'auto' (per-frame choice, §4.1 step 1) arrives with D5; until then it means 1
-    const d = o.decimate === undefined || o.decimate === 'auto' ? 1 : o.decimate;
-    if (d !== 1 && d !== 2) throw new Error(`matar: decimate must be 1, 2 or 'auto'`);
-    this.decimate = d;
+    const mode = o.decimate ?? 'auto';
+    if (mode !== 1 && mode !== 2 && mode !== 'auto') {
+      throw new Error(`matar: decimate must be 1, 2 or 'auto'`);
+    }
+    this.decimateMode = mode;
     const gamma = o.edgeGamma ?? DEFAULT_EDGE_GAMMA;
     if (!(gamma > 0)) throw new Error('matar: edgeGamma must be > 0');
-    this.quadOpts = { minPerimeterPx: MIN_PERIMETER_PX, minSidePx: MIN_SIDE_PX, decimate: d };
+    this.quadOpts = { minPerimeterPx: MIN_PERIMETER_PX, minSidePx: MIN_SIDE_PX, decimate: 1 };
     const lut = linearizationLut(gamma);
     this.refiner = new EdgeRefiner(lut);
     this.reader = new TagReader(this.def, lut);
@@ -125,6 +145,7 @@ export class TagDetector implements Detector {
 
   setIds(ids: readonly number[] | 'all'): void {
     this.matcher.setIds(ids);
+    this.prevCount = 0; // a new board: search at full resolution next
   }
 
   detect(img: GrayImage): TagDetection[] {
@@ -136,22 +157,58 @@ export class TagDetector implements Detector {
     st.borders = st.quads = st.refined = st.read = st.decoded = 0;
     this.debugCount = 0;
     this.out = [];
-    const sw = this.searchW;
-    const sh = this.searchH;
-    if (sw < 3 || sh < 3 || !this.follower) return this.out;
-
-    let search = data;
-    if (this.decimate === 2) {
-      decimate2x2(data, w, h, this.dec);
-      search = this.dec;
+    let d = this.chooseDecimate();
+    if (d === 2 && !this.follower2) d = 1; // too small to decimate
+    const follower = d === 1 ? this.follower1 : this.follower2;
+    this.lastDecimate = d;
+    this.calls++;
+    if (follower) {
+      let search = data;
+      if (d === 2) {
+        decimate2x2(data, w, h, this.dec);
+        search = this.dec;
+      }
+      const sw = follower.width;
+      const sh = follower.height;
+      // tile extrema over 2 × 2 block means: sensor noise on flat paper stays unknown
+      adaptiveThreshold(search, sw, sh, this.minContrast, this.labels, this.scratch, true);
+      this.quadOpts.decimate = d;
+      this.gray = data;
+      // an 8-connected border has at least perimeter / √2 points
+      const minPoints = Math.max(8, Math.floor(MIN_PERIMETER_PX / Math.SQRT2));
+      follower.run(this.labels, minPoints, this.sink);
+      this.gray = NO_IMAGE;
     }
-    adaptiveThreshold(search, sw, sh, this.minContrast, this.labels, this.scratch);
-    this.gray = data;
-    // an 8-connected border has at least perimeter / √2 points
-    const minPoints = Math.max(8, Math.floor(MIN_PERIMETER_PX / Math.SQRT2));
-    this.follower.run(this.labels, minPoints, this.sink);
-    this.gray = NO_IMAGE;
+    this.rememberForAuto();
     return this.out;
+  }
+
+  /**
+   * §4.1 step 1: fixed, or for 'auto' ×1 on every 8th call and whenever the
+   * previous call found nothing; otherwise ×2 if the previous call's smallest
+   * cell was ≥ 8 px at full resolution, else ×1.
+   */
+  private chooseDecimate(): 1 | 2 {
+    if (this.decimateMode !== 'auto') return this.decimateMode;
+    if (this.calls % AUTO_FULL_RES_EVERY === 0 || this.prevCount === 0) return 1;
+    return this.prevMinCellPx >= AUTO_MIN_CELL_PX ? 2 : 1;
+  }
+
+  /** Records this call's tag count and smallest cell edge (shortest side / cells). */
+  private rememberForAuto(): void {
+    const n = this.def.family.squareCells;
+    let minCell = Infinity;
+    for (const det of this.out) {
+      const c = det.corners;
+      for (let i = 0; i < 4; i++) {
+        const a = c[i]!;
+        const b = c[(i + 1) & 3]!;
+        const side = Math.hypot(b[0] - a[0], b[1] - a[1]) / n;
+        if (side < minCell) minCell = side;
+      }
+    }
+    this.prevCount = this.out.length;
+    this.prevMinCellPx = minCell;
   }
 
   /**
@@ -180,12 +237,14 @@ export class TagDetector implements Detector {
     }
     this.width = w;
     this.height = h;
-    const d = this.decimate;
-    const sw = d === 1 ? w : w >> 1;
-    const sh = d === 1 ? h : h >> 1;
-    this.searchW = sw;
-    this.searchH = sh;
-    this.dec = new Uint8Array(d === 1 ? 0 : sw * sh);
+    // one label/scratch set sized for the largest search image the mode can use
+    const full = this.decimateMode !== 2;
+    const half = this.decimateMode !== 1;
+    const hw = w >> 1;
+    const hh = h >> 1;
+    const sw = full ? w : hw;
+    const sh = full ? h : hh;
+    this.dec = new Uint8Array(half ? hw * hh : 0);
     this.labels = new Uint8Array((sw + 2) * (sh + 2));
     const nt = thresholdScratchSize(sw, sh);
     this.scratch = {
@@ -194,8 +253,10 @@ export class TagDetector implements Detector {
       dilMin: new Uint8Array(nt),
       dilMax: new Uint8Array(nt),
     };
-    this.follower = sw >= 3 && sh >= 3 ? new BorderFollower(sw, sh) : null;
-    this.fitter = this.follower ? new QuadFitter(this.follower.maxPoints) : null;
+    this.follower1 = full && w >= 3 && h >= 3 ? new BorderFollower(w, h) : null;
+    this.follower2 = half && hw >= 3 && hh >= 3 ? new BorderFollower(hw, hh) : null;
+    const maxPoints = Math.max(this.follower1?.maxPoints ?? 0, this.follower2?.maxPoints ?? 0);
+    this.fitter = maxPoints > 0 ? new QuadFitter(maxPoints) : null;
     this.allocations++;
   }
 
@@ -213,7 +274,7 @@ export class TagDetector implements Detector {
     r.set(q);
     const w = this.width;
     const h = this.height;
-    if (!this.refiner.refine(this.gray, w, h, r, this.decimate + 1, MIN_SIDE_PX)) return;
+    if (!this.refiner.refine(this.gray, w, h, r, this.lastDecimate + 1, MIN_SIDE_PX)) return;
     st.refined++;
     const reader = this.reader;
     if (!reader.read(this.gray, w, h, r, this.minContrast)) return;

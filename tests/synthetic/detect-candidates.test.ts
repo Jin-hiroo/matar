@@ -57,7 +57,7 @@ function candidateRecall(o: {
       blurSigmaPx: 0.8,
       noiseSigma: 2,
       seed: o.seed * 1000 + frame,
-      supersample: 4,
+      supersample: 2, // candidates are checked to 2–3 px only
     });
     det.detect(img);
     const cands = det.lastCandidates();
@@ -76,7 +76,8 @@ function candidateRecall(o: {
   expect(misses, `seed ${o.seed}: missed candidates`).toEqual([]);
 }
 
-describe('detector candidates (D1)', () => {
+// heavy seeded renders: when the whole suite runs in parallel they can land on efficiency cores
+describe('detector candidates (D1)', { timeout: 120_000 }, () => {
   it('finds every tag quad at ≥ 3 px/cell, tilt ≤ 60° (full resolution)', () => {
     candidateRecall({
       seed: 101,
