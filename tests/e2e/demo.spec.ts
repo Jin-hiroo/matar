@@ -128,3 +128,34 @@ test('the live background runs too', async ({ page, baseURL }) => {
   await expect(page.locator('#hud')).toContainText('bg live');
   checkPrivacy(requests, new URL(baseURL!).origin);
 });
+
+test('Mode switches the background without a reload; Copy report copies the timings', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseURL });
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const requests = await startDemo(page, '');
+  const before = await waitForEvents(page, 20);
+  await expect(page.locator('#hud')).toContainText('bg frame');
+
+  await page.getByRole('button', { name: 'Mode: frame' }).click();
+  await expect(page.locator('#hud')).toContainText('bg live');
+  await expect(page).toHaveURL(/bg=live/);
+  const after = await waitForEvents(page, before.events.length + 30);
+  expect(after.events.slice(-10).some((e) => e.pose)).toBe(true);
+
+  await page.getByRole('button', { name: 'Copy report' }).click();
+  await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
+  const report = await page.evaluate(() => navigator.clipboard.readText());
+  expect(report).toContain('mode     bg live, pose raw, worker module');
+  const fps = /fps {6}camera ([\d.]+), analysed ([\d.]+)/.exec(report);
+  expect(Number(fps?.[1])).toBeGreaterThan(5);
+  expect(Number(fps?.[2])).toBeGreaterThan(5);
+  expect(report).toMatch(/worker {3}[\d.]+ \/ [\d.]+ ms/);
+  expect(report).toMatch(/pose age \d+ \/ \d+ ms/);
+  expect(errors).toEqual([]);
+  checkPrivacy(requests, new URL(baseURL!).origin);
+});

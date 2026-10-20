@@ -120,8 +120,11 @@ pnpm dev     # HTTPS on your LAN (self-signed): open the printed URL on a phone
 
 The demo prints its board (**Print board**), tracks it with a cube on the origin, and shows
 a debug HUD (camera, fps, timings, reprojection error, jitter, focal length).
-`?inline` runs without a worker, `?debug` adds a thumbnail of the analysed frame,
-`?bg=video` uploads the `<video>` instead of the `VideoFrame`.
+After Start, **Mode** switches between the analysed frame behind the content (`frame`)
+and the newest camera frame with an extrapolated pose (`live`), and **Copy report**
+copies the last 5 s of timings for a device-test note. `?inline` runs without a worker,
+`?debug` adds a thumbnail of the analysed frame, `?bg=video` uploads the `<video>`
+instead of the `VideoFrame`.
 
 ## Status
 

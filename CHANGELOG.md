@@ -23,6 +23,9 @@ paper and the video lagged behind the camera.
 
 - `MatarThree` `background: 'live'`: the newest camera frame with the pose
   extrapolated to it, for the lowest latency (demo: `?bg=live`).
+- Demo: after Start, **Mode** switches between `frame` and `live` without a reload,
+  and **Copy report** copies the last 5 s of timings (fps, per-stage worker times,
+  how old the background and the pose are at render) for device-test notes.
 
 ## [0.1.0] - 2026-10-20
 
