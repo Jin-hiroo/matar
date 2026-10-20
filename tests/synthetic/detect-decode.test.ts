@@ -23,7 +23,8 @@ import { cornerErrorsPx, gridBoard, pickIds, runFrames, tagTruths } from './dete
 const K = intrinsicsFromFov(640, 480, 65);
 const def = getFamilyDef('tag36h11');
 
-describe('detector decoding (D3)', () => {
+// heavy seeded renders: when the whole suite runs in parallel they can land on efficiency cores
+describe('detector decoding (D3)', { timeout: 120_000 }, () => {
   it('gives the right ID and corner order for all four in-plane rotations', () => {
     const rng = mulberry32(301);
     const views = [

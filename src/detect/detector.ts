@@ -2,11 +2,13 @@
  * The tag detector (ARCHITECTURE.md §4): gray frame → decoded tags with
  * sub-pixel corners.
  *
- * Pipeline per frame (§4.1): optional 2 × 2 box decimation → adaptive threshold
- * → border following → Douglas–Peucker quads → edge refinement on the
- * full-resolution image → decode against the board's codes → corner order →
- * duplicate removal. Each candidate is refined and decoded as soon as its
- * border has been followed, so no candidate list is needed.
+ * Pipeline per frame (§4.1): optional 2 × 2 box decimation (`'auto'` by
+ * default: chosen per call from the previous call's result) → adaptive
+ * threshold (tile extrema over 2 × 2 block means) → border following →
+ * Douglas–Peucker quads → edge refinement on the full-resolution image →
+ * decode against the board's codes → corner order → duplicate removal. Each
+ * candidate is refined and decoded as soon as its border has been followed, so
+ * no candidate list is needed.
  *
  * All buffers belong to the detector and are reused; they are reallocated only
  * when the frame size changes (`allocations` counts it, for tests).
