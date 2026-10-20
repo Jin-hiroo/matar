@@ -29,3 +29,5 @@ export {
   type PoseOptions,
 } from './pose/index.js';
 export { createDetector } from './detect/index.js';
+export { listCameras } from './camera/index.js';
+export { createTracker } from './tracker/index.js';
