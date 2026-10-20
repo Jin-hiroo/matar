@@ -52,7 +52,7 @@ export interface PoseOptions {
 const cornerCache = new WeakMap<Board, Map<number, Float64Array>>();
 
 /** Board corners per tag ID, [x0, z0, …, x3, z3] mm in TL, TR, BR, BL order. */
-function boardCorners(board: Board): Map<number, Float64Array> {
+export function boardCorners(board: Board): Map<number, Float64Array> {
   let m = cornerCache.get(board);
   if (!m) {
     m = new Map();
