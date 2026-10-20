@@ -18,6 +18,13 @@
  */
 import { BLACK } from './threshold.js';
 
+/**
+ * Unvisited foreground, copied into a module-local constant: hot loops must not
+ * read an imported binding per pixel (module runners such as vitest's wrap
+ * imports in getters).
+ */
+const FG_UNVISITED: number = BLACK;
+
 /** Suzuki's NBD on a pixel whose east neighbour was not examined as background. */
 const MARK_POS = 1;
 /** Suzuki's −NBD: the pixel's east neighbour is background examined while following. */
@@ -66,7 +73,7 @@ export class BorderFollower {
       let p = y * s + 1;
       for (let x = 1; x <= w; x++, p++) {
         const v = img[p]!;
-        if (v === BLACK) {
+        if (v === FG_UNVISITED) {
           // (1) outer border start: unvisited foreground with background to the west
           if (img[p - 1]! >= FG_LIMIT) {
             const n = this.follow(img, p, 4, true);
@@ -126,7 +133,7 @@ export class BorderFollower {
       }
       // 3.4
       if (eastExamined) img[p3] = MARK_NEG;
-      else if (img[p3] === BLACK) img[p3] = MARK_POS;
+      else if (img[p3] === FG_UNVISITED) img[p3] = MARK_POS;
       if (ok) {
         const y = (p3 / s) | 0;
         const x = p3 - y * s;
