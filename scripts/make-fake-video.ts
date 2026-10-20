@@ -27,6 +27,7 @@ import {
   rollPose,
 } from '../src/synth/index.js';
 import type { Board, Mat4, Vec2, Vec3 } from '../src/types.js';
+import { demoBoard } from '../demo/board.js';
 
 const DEG = Math.PI / 180;
 const INDEX_BITS = 16;
@@ -59,7 +60,7 @@ if (width < INDEX_BITS * INDEX_BLOCK_PX) throw new Error('width too small for th
 
 const board: Board = args.board
   ? (JSON.parse(readFileSync(args.board, 'utf8')) as Board)
-  : defaultBoard();
+  : demoBoard(); // the demo's print board, so the e2e test tracks what the demo expects
 // A4 portrait around the board origin; outside it the background shows.
 const pageMm = { min: [-105, -148.5] as Vec2, max: [105, 148.5] as Vec2 };
 const intrinsics = intrinsicsFromFov(width, height, num(args.hfov, 'hfov'));
@@ -173,28 +174,6 @@ function tagsNearIndexStrip(pose: Mat4): boolean {
     if (Math.min(...xs) < xMax && Math.min(...ys) < yMax) return true;
   }
   return false;
-}
-
-/** 12 × 32 mm tags around an A4 page (IDs 0–11), origin at the page centre. */
-function defaultBoard(): Board {
-  const centres: Vec2[] = [
-    [-77, -124.5],
-    [0, -124.5],
-    [77, -124.5],
-    [77, -62],
-    [77, 0],
-    [77, 62],
-    [77, 124.5],
-    [0, 124.5],
-    [-77, 124.5],
-    [-77, 62],
-    [-77, 0],
-    [-77, -62],
-  ];
-  return {
-    family: 'tag36h11',
-    tags: centres.map((centerMm, id) => ({ id, centerMm, sizeMm: 32, rotationDeg: 0 })),
-  };
 }
 
 function num(v: string | undefined, name: string): number {

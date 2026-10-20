@@ -19,8 +19,10 @@ const STATS: TrackerStats = {
   fps: 30,
   workerMs: 0,
   timingsMs: { gray: 0, detect: 0, pose: 0, focal: 0, total: 0 },
-  camera: { label: 'fake', lens: 'unknown' },
+  camera: { label: 'fake', lens: 'unknown', devices: [] },
   focal: { fx: 0, source: 'provided', stdDevPct: null },
+  worker: 'inline',
+  frame: { path: 'gray', format: null, codedWidth: 0, codedHeight: 0, rotationDeg: 0 },
 };
 
 export class FakeTracker extends EventTarget implements Tracker {
@@ -72,6 +74,7 @@ export class FakeTracker extends EventTarget implements Tracker {
       intrinsics,
       stats: STATS,
       debugFrameIndex: null,
+      thumbnail: null,
     });
     this.dispatchEvent(e);
   }

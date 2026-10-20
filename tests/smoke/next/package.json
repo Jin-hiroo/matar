@@ -1,0 +1,17 @@
+{
+  "name": "matar-smoke-next",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "matar": "MATAR_TGZ",
+    "next": "16.3.6",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/node": "^24"
+  }
+}

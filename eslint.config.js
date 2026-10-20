@@ -21,5 +21,6 @@ export default defineConfig([
     'test-results/**',
     'playwright-report/**',
     'tests/out/**',
+    'tests/smoke/**',
   ]),
 ]);

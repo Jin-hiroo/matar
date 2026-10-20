@@ -254,6 +254,17 @@ export type MainToWorker =
     }
   | { type: 'dispose' };
 
+/** Source of an analysed frame, as reported in results and stats. */
+export interface FrameInfo {
+  path: 'videoframe' | 'canvas' | 'gray';
+  /** `VideoFrame.format` (null: opaque); null on the canvas/gray paths */
+  format: string | null;
+  codedWidth: number;
+  codedHeight: number;
+  /** clockwise rotation applied to reach the displayed orientation, degrees */
+  rotationDeg: number;
+}
+
 export interface FrameTimingsMs {
   gray: number;
   detect: number;
@@ -282,6 +293,16 @@ export type WorkerToMain =
       returned?: ArrayBuffer;
       /** with `debug`: the frame index read from the test video's strip, or null */
       debugFrameIndex?: number | null;
+      /** what the frame looked like before conversion (for the debug HUD) */
+      frame: FrameInfo;
+      /** with `debug`: a ≤ 160 px wide copy of the analysed gray image */
+      thumbnail?: { width: number; height: number; data: ArrayBuffer };
+    }
+  | {
+      /** the frame couldn't be read (opaque format): switch to the canvas path */
+      type: 'fallback';
+      frameId: number;
+      reason: 'opaque-frame';
     }
   | {
       type: 'intrinsics';
@@ -289,7 +310,7 @@ export type WorkerToMain =
       source: 'estimated';
       stdDevPct: number;
     }
-  | { type: 'error'; code: TrackerErrorCode; message: string };
+  | { type: 'error'; code: TrackerErrorCode; message: string; frameId?: number };
 
 // ---------------------------------------------------------------------------
 // Tracker (ARCHITECTURE.md §6.4, §8): src/tracker; consumed by src/three
@@ -333,8 +354,10 @@ export interface TrackerStats {
   fps: number;
   workerMs: number;
   timingsMs: FrameTimingsMs;
-  camera: { label: string; lens: LensKind };
+  camera: { label: string; lens: LensKind; devices: readonly string[] };
   focal: { fx: number; source: FocalSource; stdDevPct: number | null };
+  worker: 'module' | 'inline';
+  frame: FrameInfo;
 }
 
 /** `'pose'`: one per analysed frame. */
@@ -354,6 +377,8 @@ export interface PoseEvent extends Event {
   readonly stats: TrackerStats;
   /** with `debug`: the test video's frame index */
   readonly debugFrameIndex: number | null;
+  /** with `debug`: a small copy of the analysed gray image */
+  readonly thumbnail: GrayImage | null;
 }
 
 /**

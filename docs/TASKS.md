@@ -172,18 +172,18 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## WS-C Camera, worker, tracker, demo
 
-- [ ] **C1 Camera**: constraints, lens selection as a pure function of
+- [x] **C1 Camera**: constraints, lens selection as a pure function of
       (platform, devices, capabilities) → decision (§6.1), `listCameras`, error
       mapping to codes (§6.4). _Accept_: unit tests for iOS virtual/pinned,
       Android `camera2 N`, deviceId override, unknown platforms.
-- [ ] **C2 Frame path**: rVFC loop, one frame in flight, the `grab` event
+- [x] **C2 Frame path**: rVFC loop, one frame in flight, the `grab` event
       before the transfer, `VideoFrame` → gray for planar YUV and RGB formats
       with stride/offset, `format === null` handling, rotation (`frame.rotation`
       or transposed vs `displayWidth × displayHeight` → `screenAngleDeg`);
       canvas fallback (§6.2). _Accept_: pure conversion functions tested on synthetic
       buffers of each format and rotation; backpressure test (never > 1 in
       flight).
-- [ ] **C3 Worker + tracker**: protocol (`MainToWorker`/`WorkerToMain`, §6.3),
+- [x] **C3 Worker + tracker**: protocol (`MainToWorker`/`WorkerToMain`, §6.3),
       lifecycle (§6.4), inline mode via dynamic `import()`, fallback to inline
       when the worker fails, events (`TrackerEventMap`), pose filter + loss
       hold (`createPoseFilter` from WS-P; stub until merged), the auto-created
@@ -192,14 +192,14 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       _Accept_: unit tests with a fake worker and fake processor; visibility/
       mute pause and resume; restart after `ended`; worker failure → inline +
       `worker-failed` event; importing the module in Node doesn't throw.
-- [ ] **C4 Demo app** (`demo/`, Vite + basic-ssl): Print board, Start, axes +
+- [x] **C4 Demo app** (`demo/`, Vite + basic-ssl): Print board, Start, axes +
       a 50 mm cube on the board, debug HUD with the DEVICE-TESTS fields (camera
       label + all labels, lens, fps, worker ms, err px, jitter mm, f + source,
       worker mode, VideoFrame format / coded size / rotation, a thumbnail of
       the analysed gray frame), `?inline`, `?debug`, `?bg=frame|video`
       (DEVICE-TESTS.md platform checks). _Accept_: `pnpm dev` serves it over HTTPS and
       `pnpm demo:build` builds.
-- [ ] **C5 e2e harness**: `playwright.config.ts` (Chromium, fake camera from
+- [x] **C5 e2e harness**: `playwright.config.ts` (Chromium, fake camera from
       S2's Y4M), `tests/e2e/demo.spec.ts`. _Accept_: demo starts with the fake
       camera and emits pose events; no requests outside the page origin; no
       request bodies.
@@ -222,17 +222,27 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## Batch 3: integration (lead)
 
-- [ ] **I1 Wire the worker**: `processFrame` = detect → pose → focal; tracker
+- [x] **I1 Wire the worker**: `processFrame` = detect → pose → focal; tracker
       uses the real worker; `src/index.ts` exports per §8.
-- [ ] **I2 e2e accuracy**: with S2's path and `?debug`, each pose is compared
+- [x] **I2 e2e accuracy**: with S2's path and `?debug`, each pose is compared
       with the ground truth of its `debugFrameIndex`: within 2 mm / 0.5° after
       the first second (end-to-end through Chromium's capture pipeline).
-- [ ] **I3 Size + bundlers**: `.size-limit.json`; `pnpm size` passes (core +
+      Measured: every late frame has a pose; worst 0.47–0.54 mm / 0.07°; f
+      converges to 474.7 px (truth 474.4).
+- [x] **I3 Size + bundlers**: `.size-limit.json`; `pnpm size` passes (core +
       worker ≤ 35 KB, three ≤ 8 KB min+gzip). Smoke apps installing the
       `pnpm pack` tarball build with Vite, webpack 5 and Next.js (Turbopack):
       the worker chunk is emitted, and in Chromium with the fake camera
       `ready` arrives and pose events follow; `import 'matar'` in Node (SSR)
       doesn't throw.
+      Measured (min+gzip): whole core entry + worker 33.8 KB; worker chunk
+      21.5 KB; matar/three 1.4 KB. With code splitting (esbuild), a typical
+      import (`createTracker` + board helpers) is 9.9 KB on the main thread
+      plus the worker; the 20.8 KB detect+pose chunk loads only for inline mode.
+      `pnpm smoke` (tests/smoke + scripts/smoke-bundlers.ts): Next.js 16.3
+      Turbopack build and dev, Next webpack build, Vite 8: each 30/30 poses
+      from the module worker, no foreign requests; the Next server component
+      imports matar during prerendering (SSR safe).
 - [ ] **I4 Release v0.1.0**: README usage, CHANGELOG, `pnpm pack` tarball for
       integrators; tag `v0.1.0`.
 
