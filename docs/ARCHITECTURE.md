@@ -197,14 +197,19 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
 
 1. **Decimation** (optional): quad search on a 2 × 2 box-averaged image when
    `decimate: 2`. Decimated → full coordinates: `full = (p + 0.5)·d − 0.5`.
-   Steps 4–5 always run on the full-resolution image. `'auto'` (added with D5,
-   then the default): ×1 on every 8th frame and whenever the previous frame
-   detected nothing; otherwise ×2 if the previous frame's smallest detected
-   cell was ≥ 8 px at full resolution (≥ 4 px decimated), else ×1.
+   Steps 4–5 always run on the full-resolution image. `'auto'` (the default):
+   ×1 on every 8th frame, whenever the previous frame detected nothing, after
+   `setIds()` and for frames too small to halve; otherwise ×2 if the previous
+   frame's smallest detected cell (shortest side / 8) was ≥ 8 px at full
+   resolution, else ×1. (×2 still finds 99.6 % of tags at 3–4 px/cell, so the
+   8 px switch-over is conservative and could be lowered after device tests.)
 2. **Adaptive threshold** (AprilTag 3): 4 × 4 px tiles, each tile's min and
-   max, extrema dilated over the 3 × 3 tile neighbourhood, threshold
-   (min + max)/2. Pixels whose local max − min < `minContrast` (default 10) are
-   "unknown" (neither black nor white). Output: `Uint8Array` labels
+   max **over its four 2 × 2 block means** (halves the noise in max − min, so
+   flat paper with sensor noise stays "unknown" instead of turning into large
+   black clusters; real edges keep their extrema), extrema dilated over the
+   3 × 3 tile neighbourhood, threshold (min + max)/2, every pixel compared at
+   full resolution. Pixels whose local max − min < `minContrast` (default 15)
+   are "unknown" (neither black nor white); this holds up to ≈ 4 DN of noise. Output: `Uint8Array` labels
    (0 black, 255 white, 127 unknown).
 3. **Candidates**: border following (Suzuki–Abe 1985) on black regions,
    outer borders only, perimeter ≥ 32 px; Douglas–Peucker (ε = 0.03 ×
@@ -248,7 +253,11 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
 
 Target on an M-series Mac: median ≤ 4 ms for 1280 × 720 with ~15 tags (phones
 are typically 2–3× slower; the device budget is ≤ 12 ms for the whole worker
-step). No published phone timings exist for JS tag detectors (RESEARCH.md
+step). Measured (D5, M2, Node 24, `pnpm bench --silent=false`): 50 cm clean
+3.4 ms at ×1 / 2.0 ms at ×2; with clutter + 2 DN noise 3.8 / 2.4 ms; a 30 cm
+close-up 4.7 / 3.3 ms (auto: 3.3 ms, p99 4.7 ms from the ×1 call every 8th
+frame). Hot loops bind imported constants locally (vitest wraps imported
+bindings in getters, which made the bench 7× slower). No published phone timings exist for JS tag detectors (RESEARCH.md
 §2.3): benchmark early (`tests/bench`). Later optimisations, only if device
 numbers demand them: ROI search from a constant-velocity prediction with a
 full-frame search every 8th frame, a WASM SIMD threshold/contour stage.

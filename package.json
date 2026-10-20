@@ -1,6 +1,6 @@
 {
   "name": "matar",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Browser AR for printed paper mats: square-tag tracking from the phone camera, no WebXR, no app.",
   "license": "Apache-2.0",
   "type": "module",

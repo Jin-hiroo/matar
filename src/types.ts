@@ -136,9 +136,9 @@ export interface DetectorOptions {
   ids: readonly number[] | 'all';
   /** default: the family's `maxCorrectedBits` (2 for tag36h11) */
   maxCorrectedBits?: number;
-  /** local max − min below this (DN) is "unknown" in the threshold, default 10 */
+  /** local max − min (of 2 × 2 block means) below this (DN) is "unknown" in the threshold, default 15 */
   minContrast?: number;
-  /** quad search on a ×2 box-averaged image; `'auto'` per §4.1 step 1 (D5), default 1 until D5 */
+  /** quad search on a ×2 box-averaged image; default `'auto'` (§4.1 step 1) */
   decimate?: 1 | 2 | 'auto';
   /**
    * gamma of the camera encoding, used to linearise samples before the edge

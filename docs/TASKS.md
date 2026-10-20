@@ -122,7 +122,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       tags with IDs not on the board, random tag-like squares) → **0** detections of board IDs
       in CI; `pnpm test:long` runs 10 000. Tune `minContrast` and border checks
       only with these tests.
-- [ ] **D5 Performance** (batch 2). Measured at D4 (M2, Node 24, 1280 × 720, 15
+- [x] **D5 Performance** (batch 2). Measured at D4 (M2, Node 24, 1280 × 720, 15
       tags, median): decimate 1 clean 7.1 ms, with clutter + 2 DN noise 20 ms
       (noise on flat paper exceeds `minContrast` 10, ≈ 240 specks per frame);
       decimate 2: 3.0 / 3.9 ms. Candidates: `'auto'` decimation, a higher
@@ -243,7 +243,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       Turbopack build and dev, Next webpack build, Vite 8: each 30/30 poses
       from the module worker, no foreign requests; the Next server component
       imports matar during prerendering (SSR safe).
-- [ ] **I4 Release v0.1.0**: README usage, CHANGELOG, `pnpm pack` tarball for
+- [x] **I4 Release v0.1.0**: README usage, CHANGELOG, `pnpm pack` tarball for
       integrators; tag `v0.1.0`.
 
 ## Device (maintainer)

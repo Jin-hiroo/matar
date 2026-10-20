@@ -4,7 +4,7 @@ All notable changes to matar. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) (while < 1.0, a minor bump may change the API).
 
-## [0.1.0] - unreleased
+## [0.1.0] - 2026-10-20
 
 First version: the whole pipeline works end to end in desktop Chromium with a synthetic
 camera. Not yet tested on real phones (docs/DEVICE-TESTS.md).
@@ -18,7 +18,8 @@ camera. Not yet tested on real phones (docs/DEVICE-TESTS.md).
 - **Detection** (`createDetector`): adaptive threshold, border following, quad fitting,
   gamma-aware sub-pixel edge refinement, decoding against the board's IDs with up to 2
   corrected bits. Synthetic: 0.01 px corner RMS clean, 0.05 px with noise; 100 % correct
-  IDs; 0 false positives in 10 000 clutter frames.
+  IDs; 0 false positives in 10 000 clutter frames; 3.8 ms per noisy 1280 × 720 frame on
+  an M2 (2.4 ms with the default `'auto'` decimation).
 - **Pose** (`estimatePose`): homography + IPPE + Huber LM over all visible tags, tag-pair
   consensus against wrong tags, planar-ambiguity handling for single tags;
   `createPoseFilter` (One Euro, jump gating, loss hold); `createFocalEstimator` (focal
