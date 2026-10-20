@@ -66,27 +66,57 @@ export class BorderFollower {
    * buffers is passed to `sink`.
    */
   run(img: Uint8Array, minPoints: number, sink: OuterBorderSink): void {
-    const w = this.width;
-    const h = this.height;
-    const s = w + 2;
-    for (let y = 1; y <= h; y++) {
-      let p = y * s + 1;
-      for (let x = 1; x <= w; x++, p++) {
-        const v = img[p]!;
-        if (v === FG_UNVISITED) {
-          // (1) outer border start: unvisited foreground with background to the west
-          if (img[p - 1]! >= FG_LIMIT) {
-            const n = this.follow(img, p, 4, true);
-            if (n >= minPoints) sink(this.xs, this.ys, n);
-            continue;
-          }
-        } else if (v !== MARK_POS) {
-          continue;
-        }
-        // (2) hole border start: foreground (not −NBD) with background to the east
-        if (img[p + 1]! >= FG_LIMIT) this.follow(img, p, 0, false);
-      }
+    const s = this.width + 2;
+    // Raster order over the padded buffer: the frame is background, so scanning
+    // it is harmless and the rows can be one linear range.
+    const first = s + 1;
+    const last = this.height * s + this.width;
+    const words = this.wordView(img);
+    if (!words) {
+      for (let p = first; p <= last; p++) this.visit(img, p, minPoints, sink);
+      return;
     }
+    // 4 labels per word; a word whose bytes all have bit 6 set (WHITE 255,
+    // UNKNOWN 127) holds no foreground (BLACK 0, marks 1–2) and is skipped.
+    // Following only rewrites foreground bytes, so a skipped word stays skippable.
+    for (let k = first >> 2, kEnd = last >> 2; k <= kEnd; k++) {
+      if ((words[k]! & 0x40404040) === 0x40404040) continue;
+      const p0 = k << 2;
+      const pa = p0 > first ? p0 : first;
+      const pb = p0 + 3 < last ? p0 + 3 : last;
+      for (let p = pa; p <= pb; p++) this.visit(img, p, minPoints, sink);
+    }
+  }
+
+  private words: Uint32Array | null = null;
+  private wordsOf: Uint8Array | null = null;
+
+  /** A cached Uint32 view of `img`, or null if it isn't 4-byte aligned. */
+  private wordView(img: Uint8Array): Uint32Array | null {
+    if (this.wordsOf === img) return this.words;
+    this.wordsOf = img;
+    this.words =
+      img.byteOffset % 4 === 0
+        ? new Uint32Array(img.buffer, img.byteOffset, img.byteLength >> 2)
+        : null;
+    return this.words;
+  }
+
+  /** Suzuki's start conditions at pixel p (raster order). */
+  private visit(img: Uint8Array, p: number, minPoints: number, sink: OuterBorderSink): void {
+    const v = img[p]!;
+    if (v === FG_UNVISITED) {
+      // (1) outer border start: unvisited foreground with background to the west
+      if (img[p - 1]! >= FG_LIMIT) {
+        const n = this.follow(img, p, 4, true);
+        if (n >= minPoints) sink(this.xs, this.ys, n);
+        return;
+      }
+    } else if (v !== MARK_POS) {
+      return;
+    }
+    // (2) hole border start: foreground (not −NBD) with background to the east
+    if (img[p + 1]! >= FG_LIMIT) this.follow(img, p, 0, false);
   }
 
   /**
