@@ -4,9 +4,10 @@
  * (vitest 5: `bench` is a test-context fixture, only in `*.bench.ts` files).
  *
  * Frames: the 15-tag A4 ring seen from 50 cm (all tags in view, 4.7–8.5 px
- * per cell), clean (blur 0.8 px) and noisy (40 clutter patches + 2 DN noise).
- * `'auto'` reuses one detector, so it measures the steady state (×2 with a
- * ×1 frame every 8th call).
+ * per cell), clean (blur 0.8 px) and noisy (40 clutter patches + 2 DN noise),
+ * and a noisy close-up from 30 cm (all 15 in view, every cell ≥ 8.1 px).
+ * `'auto'` reuses one detector, so it measures the steady state: ×1 at 50 cm
+ * (the 20 mm tags have cells < 8 px), ×2 with a ×1 call every 8th up close.
  */
 import { test } from 'vitest';
 import { createDetector } from '../../src/detect/index.js';
@@ -22,10 +23,11 @@ import { a4Ring15 } from '../synthetic/pose-helpers.js';
 
 const board = a4Ring15();
 const k = intrinsicsFromFov(1280, 720, 65);
-const pose = lookAtPose([30, 470, 160], [0, 0, 0]);
+const far = lookAtPose([30, 470, 160], [0, 0, 0]);
+const near = lookAtPose([0, 295, 58], [0, 0, 0]);
 const pageMm = { min: [-148.5, -105] as [number, number], max: [148.5, 105] as [number, number] };
 
-function frame(noisy: boolean): GrayImage {
+function frame(noisy: boolean, pose = far): GrayImage {
   const patches = noisy
     ? randomPatches(mulberry32(3), {
         areaMm: { min: [-145, -100], max: [145, 100] },
@@ -48,6 +50,7 @@ function frame(noisy: boolean): GrayImage {
 
 const clean = frame(false);
 const noisy = frame(true);
+const closeUp = frame(true, near);
 const ids = board.tags.map((t) => t.id);
 
 function detector(decimate: DetectorOptions['decimate'], img: GrayImage) {
@@ -59,6 +62,7 @@ function detector(decimate: DetectorOptions['decimate'], img: GrayImage) {
 for (const [name, img] of [
   ['clean', clean],
   ['clutter + 2 DN noise', noisy],
+  ['close-up, clutter + 2 DN noise', closeUp],
 ] as const) {
   test(`detect 1280 × 720, 15 tags, ${name}`, async ({ bench }) => {
     const d1 = detector(1, img);
