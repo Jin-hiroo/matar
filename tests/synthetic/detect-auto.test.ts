@@ -1,7 +1,7 @@
 /**
  * D5 (TASKS.md): the `decimate: 'auto'` policy (ARCHITECTURE.md §4.1 step 1):
  * ×1 on every 8th call and whenever the previous call found nothing;
- * otherwise ×2 if the previous call's smallest cell was ≥ 8 px, else ×1.
+ * otherwise ×2 if the previous call's smallest cell was ≥ 5 px, else ×1.
  */
 import { describe, expect, it } from 'vitest';
 import { TagDetector } from '../../src/detect/detector.js';
@@ -84,7 +84,7 @@ describe("decimate 'auto' (D5)", () => {
     expect(used).toEqual([1, 2, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2]);
   });
 
-  it('stays ×1 when nothing is found or the smallest cell is < 8 px', () => {
+  it('stays ×1 when nothing is found or the smallest cell is < 5 px', () => {
     const det = auto();
     for (let i = 0; i < 10; i++) {
       det.detect(empty);

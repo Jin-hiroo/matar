@@ -116,3 +116,15 @@ test('runs inline on request', async ({ page, baseURL }) => {
   expect(state.events.filter((e) => e.pose).length).toBeGreaterThan(10);
   checkPrivacy(requests, new URL(baseURL!).origin);
 });
+
+test('the live background runs too', async ({ page, baseURL }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const requests = await startDemo(page, '&bg=live');
+  const state = await waitForEvents(page, 20);
+  expect(state.errors).toEqual([]);
+  expect(errors).toEqual([]);
+  expect(state.events.filter((e) => e.pose).length).toBeGreaterThan(10);
+  await expect(page.locator('#hud')).toContainText('bg live');
+  checkPrivacy(requests, new URL(baseURL!).origin);
+});

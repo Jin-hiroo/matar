@@ -4,6 +4,26 @@ All notable changes to matar. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [Semantic Versioning](https://semver.org/) (while < 1.0, a minor bump may change the API).
 
+## [Unreleased]
+
+First device test (Android): tracking worked but felt laggy: the cube trailed the
+paper and the video lagged behind the camera.
+
+### Changed
+
+- `MatarThree` drives the camera with each frame's own pose by default (`pose: 'raw'`);
+  the smoothed pose only bridges frames without one. Content no longer trails the
+  paper by the filter's lag. `pose: 'smoothed'` restores the old behaviour.
+- The detector's `'auto'` decimation switches to ×2 from 5 px cells (was 8 px);
+  ×2 still finds 99.6 % of tags at 3–4 px/cell.
+- Demo HUD: per-stage worker timings and the delay since the frame; refreshed 5×
+  a second instead of every frame.
+
+### Added
+
+- `MatarThree` `background: 'live'`: the newest camera frame with the pose
+  extrapolated to it, for the lowest latency (demo: `?bg=live`).
+
 ## [0.1.0] - 2026-10-20
 
 First version: the whole pipeline works end to end in desktop Chromium with a synthetic

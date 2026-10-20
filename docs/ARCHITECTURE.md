@@ -548,7 +548,9 @@ coordinates sits on the paper. `ar.update()`:
 
 1. takes the newest pose event whose frame is in the texture ring;
 2. sets `scene.background` to that frame's texture with the cover crop (§7.3);
-3. copies the smoothed `boardFromCamera` (translation × `mmToM`) into
+3. copies the frame's own `pose.boardFromCamera` (option `pose: 'raw'`, the
+   default; the smoothed pose only for frames without one, i.e. the loss hold)
+   or the smoothed pose (`pose: 'smoothed'`), translation × `mmToM`, into
    `camera.matrix` and `decompose`s it into `position`/`quaternion`/`scale`
    (three recomputes `matrixWorld` from these on every render, so setting
    `matrixWorld` directly would be overwritten). `matrixAutoUpdate` stays
@@ -582,6 +584,21 @@ pose N; a pose whose frame is no longer in the ring, or is older than the frame
 on screen, is skipped and the last shown frame stays. With one frame in flight, 3 textures always cover "shown" and
 "pending". Display latency = worker time + up to one frame, and video and
 overlay always match. `background: 'none'` leaves the background to the app.
+
+**Why raw by default.** In synced mode the pose was fitted to exactly the pixels
+on screen, so it needs no smoothing to stay on the paper; the One Euro filter's
+lag at slow and moderate motion (30–100 ms) made content trail the paper on the
+first Android device test. Jitter of the raw pose is small for content near the
+paper (RESEARCH.md §2.7).
+
+**`background: 'live'`** trades exact registration for latency: a
+`VideoTexture` of the tracker's `<video>` shows the newest camera frame (no
+worker delay), and `update()` extrapolates the newest pose at constant
+velocity (position linearly, rotation as `q₁ · (q₀⁻¹ q₁)^k`) to that frame's
+`expectedDisplayTime`, at most 100 ms and 3 pose intervals ahead; no
+extrapolation across a gap > 250 ms. Content can swim slightly during sudden
+moves. Which mode feels better on phones is a device-test question
+(DEVICE-TESTS.md).
 Accepted by a real-three test in Chromium (Playwright,
 `playwright.three.config.ts`): render, read pixels back, and check the
 background is frame N's content when pose N is applied, for both texture
@@ -738,7 +755,8 @@ export class MatarThree {
     renderer: MatarThreeRenderer; // Pick<WebGLRenderer, 'domElement' | 'initTexture'>
     camera: PerspectiveCamera; // no parent, or an identity-transform parent
     scene: Scene;
-    background?: 'synced' | 'none'; // default 'synced' (§7.2)
+    background?: 'synced' | 'live' | 'none'; // default 'synced' (§7.2)
+    pose?: 'raw' | 'smoothed'; // default 'raw': the shown frame's own pose (§7.1)
     textureSource?: 'frame' | 'video'; // upload the VideoFrame (default) or the <video>
   });
   update(): MatarThreeUpdate; // { tracking: smoothed !== null; frameId (−1 before the first pose) }

@@ -4,8 +4,11 @@
  * DEVICE-TESTS.md asks for).
  *
  * URL flags: `?inline` (no worker), `?debug` (frame index + gray thumbnail,
- * `window.__matar` for the e2e test), `?bg=frame|video` (texture source of
- * the synced background).
+ * `window.__matar` for the e2e test), `?bg=frame` (default: the analysed frame
+ * behind the content, uploaded from the `VideoFrame`), `?bg=video` (the same,
+ * uploaded from the `<video>`), `?bg=live` (the newest camera frame with an
+ * extrapolated pose: lower latency), `?pose=smoothed` (One Euro output instead
+ * of each frame's own pose).
  */
 import {
   AxesHelper,
@@ -29,7 +32,10 @@ import { DEMO_ORIGIN_MM, DEMO_PAGE_MM, demoBoard } from './board.js';
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
 const inline = params.has('inline');
-const textureSource = params.get('bg') === 'video' ? 'video' : 'frame';
+const bg = params.get('bg') ?? 'frame';
+const background = bg === 'live' ? 'live' : 'synced';
+const textureSource = bg === 'video' ? 'video' : 'frame';
+const poseKind = params.get('pose') === 'smoothed' ? 'smoothed' : 'raw';
 
 const board = demoBoard();
 const hud = document.getElementById('hud') as HTMLPreElement;
@@ -82,7 +88,15 @@ async function start(): Promise<void> {
   document.getElementById('view')!.appendChild(renderer.domElement); // `!`: in index.html
   const scene = new Scene();
   const camera = new PerspectiveCamera(50, 1, 0.01, 10);
-  const ar = new MatarThree({ tracker, renderer, camera, scene, textureSource });
+  const ar = new MatarThree({
+    tracker,
+    renderer,
+    camera,
+    scene,
+    background,
+    textureSource,
+    pose: poseKind,
+  });
 
   // content in board coordinates, metres: axes on the origin cross, a 50 mm cube on the paper
   const content = new Group();
@@ -103,6 +117,7 @@ async function start(): Promise<void> {
   let last: PoseEvent | null = null;
   const recent: [number, number, number][] = [];
   let renderMs = 0;
+  let hudAt = 0;
   tracker.addEventListener('pose', (e) => {
     last = e;
     const s = e.smoothed;
@@ -139,7 +154,12 @@ async function start(): Promise<void> {
     content.visible = u.tracking;
     renderer.render(scene, camera);
     renderMs += 0.1 * (performance.now() - t0 - renderMs);
-    if (last) hud.textContent = hudText(last, jitterMm(recent), renderMs);
+    // the HUD is text layout: refresh it 5× a second, not every frame
+    const now = performance.now();
+    if (last && now - hudAt > 200) {
+      hudAt = now;
+      hud.textContent = hudText(last, jitterMm(recent), renderMs, now - last.timestampMs);
+    }
   });
 
   try {
@@ -159,15 +179,18 @@ function jitterMm(p: [number, number, number][]): number | null {
   return Math.sqrt(ss / p.length);
 }
 
-function hudText(e: PoseEvent, jitter: number | null, renderMs: number): string {
+function hudText(e: PoseEvent, jitter: number | null, renderMs: number, ageMs: number): string {
   const s = e.stats;
   const f = s.frame;
+  const t = s.timingsMs;
   return [
     `camera  ${s.camera.label || '?'} (${s.camera.lens})`,
     `inputs  ${s.camera.devices.join(' | ') || '-'}`,
     `fps ${s.fps.toFixed(1)}  worker ${s.workerMs.toFixed(1)} ms (${s.worker})  render ${renderMs.toFixed(1)} ms`,
+    `stages  gray ${t.gray.toFixed(1)}  detect ${t.detect.toFixed(1)}  pose ${t.pose.toFixed(1)}  focal ${t.focal.toFixed(1)} ms`,
+    `delay   ${ageMs.toFixed(0)} ms since the frame (bg ${bg}, pose ${poseKind})`,
     `frame   ${f.path} ${f.format ?? '-'} ${f.codedWidth}×${f.codedHeight} rot ${f.rotationDeg}°  analysed ${e.intrinsics.width}×${e.intrinsics.height}`,
-    `tags ${e.detections.length}  err ${e.pose ? e.pose.rmsErrPx.toFixed(2) : '-'} px  jitter ${jitter === null ? '-' : jitter.toFixed(2)} mm`,
+    `tags ${e.detections.length}  err ${e.pose ? e.pose.rmsErrPx.toFixed(2) : '-'} px  jitter ${jitter === null ? '-' : jitter.toFixed(2)} mm (hold still)`,
     `f ${s.focal.fx.toFixed(1)} px (${s.focal.source}${s.focal.stdDevPct === null ? '' : ` ±${s.focal.stdDevPct.toFixed(2)} %`})`,
     e.smoothed ? 'tracking' : 'searching…',
   ].join('\n');

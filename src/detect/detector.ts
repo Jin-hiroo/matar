@@ -50,8 +50,8 @@ const NO_IMAGE = new Uint8Array(0);
 
 /** 'auto' decimation: a full-resolution search at least every this many calls (§4.1 step 1). */
 export const AUTO_FULL_RES_EVERY = 8;
-/** 'auto' decimation: ×2 only if the previous call's smallest cell was ≥ this, full-res px. */
-export const AUTO_MIN_CELL_PX = 8;
+/** 'auto' decimation: ×2 only if the previous call's smallest cell was ≥ this, full-res px (×2 still finds 99.6 % of tags at 3–4 px/cell). */
+export const AUTO_MIN_CELL_PX = 5;
 
 /** Most candidate quads kept for `lastCandidates()` (debugging and tests). */
 const MAX_DEBUG_QUADS = 512;

@@ -63,12 +63,21 @@ export class FakeTracker extends EventTarget implements Tracker {
     this.dispatchEvent(e);
   }
 
-  pose(frameId: number, smoothed: Mat4 | null, intrinsics: CameraIntrinsics): void {
+  /** a pose event; `raw` becomes `pose.boardFromCamera` (null: the frame had no pose) */
+  pose(
+    frameId: number,
+    smoothed: Mat4 | null,
+    intrinsics: CameraIntrinsics,
+    raw: Mat4 | null = null,
+    timestampMs = frameId * (1000 / 30),
+  ): void {
     this.intrinsics = intrinsics;
     const e: PoseEvent = Object.assign(new Event('pose'), {
       frameId,
-      timestampMs: frameId * (1000 / 30),
-      pose: null,
+      timestampMs,
+      pose: raw
+        ? { boardFromCamera: raw, rmsErrPx: 0.1, usedTagIds: [], rejectedTagIds: [] }
+        : null,
       smoothed,
       detections: [],
       intrinsics,
