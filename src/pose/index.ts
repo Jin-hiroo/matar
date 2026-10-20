@@ -11,6 +11,12 @@ export {
   glToCvPoint,
   projectionFromIntrinsics,
 } from './frames.js';
+export {
+  createFocalEstimator,
+  FOCAL_DEFAULTS,
+  focalConstraints,
+  type FocalEstimatorOptions,
+} from './focal.js';
 export { createPoseFilter, oneEuroAlpha, POSE_FILTER_DEFAULTS } from './filter.js';
 export { DEFAULT_FOV_PRIOR_DEG, focalPrior } from './intrinsics.js';
 export { ippeRotations, ippeTranslation } from './ippe.js';

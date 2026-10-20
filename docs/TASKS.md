@@ -164,7 +164,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       constant motion → steady lag ≤ 20 ms; a 30 mm one-frame spike is ignored;
       a persisting jump is taken after 3 frames; `update(null)` holds the last
       output until `lostAfterMs`, then returns null and resets.
-- [ ] **P6 Focal self-calibration** (batch 2): §5.5 `createFocalEstimator`
+- [x] **P6 Focal self-calibration** (batch 2): §5.5 `createFocalEstimator`
       (closed form + per-keyframe spread, no bundle). _Accept_: 20 views tilt
       20–60°, σ = 0.3 px: f within 0.3 %; 3 views: within 1 %; fronto-parallel
       only views → no estimate; accept/limit/jump rules unit-tested; prior from
