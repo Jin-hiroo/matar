@@ -551,16 +551,30 @@ a video), and a live `VideoTexture` re-uploads on its own frame callback, so
 the frame shown would no longer be the frame analysed.
 
 On the tracker's `grab` event for frame N (synchronous, before the transfer,
-§6.2): `tex = ring[N mod 3]; tex.setFrame(e.frame ?? e.video);
-renderer.initTexture(tex)`, which uploads now. Inside the frame callback the
+§6.2): `tex` = the oldest ring slot that isn't on screen (by a grab counter,
+so frame-ID gaps and tracker restarts never overwrite the shown texture);
+`tex.setFrame(e.frame ?? e.video); renderer.initTexture(tex)`, which uploads
+now. Inside the frame callback the
 `<video>` shows the same frame, so `e.video` is the fallback when there is no
 `VideoFrame` (or, if a device test shows WebKit can't upload `VideoFrame`s to
 WebGL, the only source). When pose N arrives, `update()` shows texture N with
-pose N. With one frame in flight, 3 textures always cover "shown" and
+pose N; a pose whose frame is no longer in the ring, or is older than the frame
+on screen, is skipped and the last shown frame stays. With one frame in flight, 3 textures always cover "shown" and
 "pending". Display latency = worker time + up to one frame, and video and
 overlay always match. `background: 'none'` leaves the background to the app.
-Accepted by a real-three test in Chromium (Playwright): render, read pixels
-back, and check the background is frame N's content when pose N is applied.
+Accepted by a real-three test in Chromium (Playwright,
+`playwright.three.config.ts`): render, read pixels back, and check the
+background is frame N's content when pose N is applied, for both texture
+sources. three logs (doesn't throw) failed `texImage2D` uploads, so a WebKit
+failure would show as a black or stale background: DEVICE-TESTS checks
+`?bg=frame` and `?bg=video`. Whether uploads honour `VideoFrame.rotation`
+(Chrome 138+) is unverified; the `video` source avoids the question.
+
+Other behaviour: the canvas size is `renderer.domElement.getBoundingClientRect()`
+(the same rect taps use), falling back to the drawing-buffer size when the
+canvas isn't laid out; `update()` returns `frameId: -1` before the first
+pose; `dispose()` removes the listeners, disposes the textures and clears
+`scene.background` if it is matar's; `raycaster()` returns a new object.
 
 ### 7.3 Canvas fit
 
@@ -700,18 +714,19 @@ export function projectionFromIntrinsics(k: CameraIntrinsics, near: number, far:
 export class MatarThree {
   constructor(opts: {
     tracker: Tracker;
-    renderer: WebGLRenderer;
+    renderer: MatarThreeRenderer; // Pick<WebGLRenderer, 'domElement' | 'initTexture'>
     camera: PerspectiveCamera; // no parent, or an identity-transform parent
     scene: Scene;
     background?: 'synced' | 'none'; // default 'synced' (§7.2)
     textureSource?: 'frame' | 'video'; // upload the VideoFrame (default) or the <video>
   });
-  update(): { tracking: boolean; frameId: number }; // tracking = smoothed !== null
+  update(): MatarThreeUpdate; // { tracking: smoothed !== null; frameId (−1 before the first pose) }
   pointerToNdc(e: { clientX: number; clientY: number }): Vector2;
   raycaster(e: { clientX: number; clientY: number }): Raycaster;
   dispose(): void;
 }
 export const mmToM: number; // 0.001
+export type { MatarThreeOptions, MatarThreeRenderer, MatarThreeUpdate };
 
 // 'matar/testing' (src/synth/index.ts)
 export function renderBoard(opts: RenderBoardOptions): GrayImage; // §9.1

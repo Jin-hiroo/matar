@@ -40,14 +40,16 @@ One-off checks of browser behaviour the design depends on (ARCHITECTURE.md §6.2
 §7.2). The demo's HUD (with `?debug`) shows the values; record yes/no and the
 value per device in the Notes column of the results.
 
-| Check              | What to look at                                                                                                                                                    |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| VideoFrame format  | HUD `frame`: `format` (NV12 / I420 / RGBA / null), coded size, `rotation`                                                                                          |
-| Orientation        | in portrait, is the VideoFrame transposed vs `videoWidth × videoHeight`? If so, does rotating by `screen.orientation.angle` give an upright image (HUD thumbnail)? |
-| VideoFrame → WebGL | background shows the camera with `?bg=frame` (VideoFrame upload) and with `?bg=video` (video-element upload)                                                       |
-| Hidden video       | with the tracker-created 1 × 1 px video, frames keep arriving (fps ≥ 25)                                                                                           |
-| Worker             | HUD `worker: module` (not `inline`), and no requests other than the page's own origin in Web Inspector / DevTools                                                  |
-| Lens labels        | every `videoinput` label (HUD list), and which one was pinned                                                                                                      |
+| Check              | What to look at                                                                                                                                                       |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| VideoFrame format  | HUD `frame`: `format` (NV12 / I420 / RGBA / null), coded size, `rotation`                                                                                             |
+| Orientation        | in portrait, is the VideoFrame transposed vs `videoWidth × videoHeight`? If so, does rotating by `screen.orientation.angle` give an upright image (HUD thumbnail)?    |
+| VideoFrame → WebGL | background shows the camera with `?bg=frame` (VideoFrame upload) and with `?bg=video` (video-element upload)                                                          |
+| Hidden video       | with the tracker-created 1 × 1 px video, frames keep arriving (fps ≥ 25)                                                                                              |
+| Worker             | HUD `worker: module` (not `inline`), and no requests other than the page's own origin in Web Inspector / DevTools                                                     |
+| Lens labels        | every `videoinput` label (HUD list), and which one was pinned                                                                                                         |
+| Rotated frames     | Android, portrait: with `?bg=frame`, is the background upright and aligned with the overlay (does the WebGL upload honour `VideoFrame.rotation`)? Compare `?bg=video` |
+| Render cost        | HUD `render ms` (`MatarThree.update()` + `renderer.render`) per frame; it should stay well under the frame interval                                                   |
 
 ## Results
 

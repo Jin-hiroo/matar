@@ -206,18 +206,18 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
 
 ## WS-3 three.js adapter (`src/three/`)
 
-- [ ] **T3-1 Camera sync**: `MatarThree.update()`: pose → `camera.matrix` →
+- [x] **T3-1 Camera sync**: `MatarThree.update()`: pose → `camera.matrix` →
       `decompose` (mm → m), `makePerspective` with the crop intrinsics and
       `coordinateSystem`/`reversedDepth` (§7.1, §7.3); throws if the camera
       has a non-identity parent. _Accept_: a board point projects to the same
       canvas pixel through three's camera as through the pinhole model + crop
       (1e-6 px) for portrait/landscape canvases and frames.
-- [ ] **T3-2 Texture ring** (§7.2): 3 `VideoFrameTexture`s uploaded on the
+- [x] **T3-2 Texture ring** (§7.2): 3 `VideoFrameTexture`s uploaded on the
       `grab` event; `synced` and `none` backgrounds. _Accept_: with a fake
       renderer, pose N always shows texture N; a real-three Playwright test
       (Chromium, WebGL) reads pixels back and finds frame N's content behind
       pose N.
-- [ ] **T3-3 Taps**: `pointerToNdc`, `raycaster`. _Accept_: tapping the
+- [x] **T3-3 Taps**: `pointerToNdc`, `raycaster`. _Accept_: tapping the
       projection of a board point gives a ray through it (1e-6 mm).
 
 ## Batch 3: integration (lead)
