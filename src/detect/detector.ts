@@ -32,7 +32,11 @@ import {
   type ThresholdScratch,
 } from './threshold.js';
 
-export const DEFAULT_MIN_CONTRAST = 10;
+/**
+ * Default `minContrast`, DN (ARCHITECTURE.md says 10; 15 with block extrema keeps
+ * 2–4 DN sensor noise on flat paper unknown, D5).
+ */
+export const DEFAULT_MIN_CONTRAST = 15;
 export const DEFAULT_EDGE_GAMMA = 2.2;
 /** Minimum outer-border length, search-image px (§4.1 step 3). */
 export const MIN_PERIMETER_PX = 32;
@@ -145,7 +149,8 @@ export class TagDetector implements Detector {
       decimate2x2(data, w, h, this.dec);
       search = this.dec;
     }
-    adaptiveThreshold(search, sw, sh, this.minContrast, this.labels, this.scratch);
+    // tile extrema over 2 × 2 block means: sensor noise on flat paper stays unknown
+    adaptiveThreshold(search, sw, sh, this.minContrast, this.labels, this.scratch, true);
     this.gray = data;
     // an 8-connected border has at least perimeter / √2 points
     const minPoints = Math.max(8, Math.floor(MIN_PERIMETER_PX / Math.SQRT2));

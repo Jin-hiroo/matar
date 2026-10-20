@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { mulberry32, normalSampler } from '../synth/random.js';
 import { BorderFollower } from './contours.js';
 import { squareToQuad } from './homography.js';
 import { QuadFitter } from './quad.js';
@@ -22,9 +23,15 @@ function scratch(w: number, h: number) {
 }
 
 /** Thresholds `img` and returns the unpadded labels row by row. */
-function labels(img: Uint8Array, w: number, h: number, minContrast = 10): number[][] {
+function labels(
+  img: Uint8Array,
+  w: number,
+  h: number,
+  minContrast = 10,
+  blockExtrema = false,
+): number[][] {
   const out = new Uint8Array((w + 2) * (h + 2));
-  adaptiveThreshold(img, w, h, minContrast, out, scratch(w, h));
+  adaptiveThreshold(img, w, h, minContrast, out, scratch(w, h), blockExtrema);
   const rows: number[][] = [];
   for (let y = 0; y < h; y++)
     rows.push(Array.from(out.subarray((y + 1) * (w + 2) + 1, (y + 1) * (w + 2) + 1 + w)));
@@ -102,6 +109,24 @@ describe('adaptiveThreshold', () => {
       10,
     );
     expect(low.flat().every((v) => v === UNKNOWN)).toBe(true);
+  });
+
+  it('with block extrema, keeps noisy flat paper unknown and real steps unchanged', () => {
+    const w = 64;
+    const h = 64;
+    const rng = mulberry32(11);
+    const gauss = normalSampler(rng);
+    const flat = new Uint8Array(w * h).map(() => Math.round(200 + 3 * gauss()));
+    const pixel = labels(flat, w, h, 15).flat();
+    const block = labels(flat, w, h, 15, true).flat();
+    expect(pixel.filter((v) => v !== UNKNOWN).length).toBeGreaterThan(500); // speckle
+    expect(block.every((v) => v === UNKNOWN)).toBe(true);
+    // a noisy step: same labels within a tile of the edge
+    const step = flat.map((v, i) => (i % w < 30 ? v - 160 : v));
+    const a = labels(step, w, h, 15);
+    const b = labels(step, w, h, 15, true);
+    for (let y = 0; y < h; y++)
+      expect(b[y]!.slice(24, 36), `row ${y}`).toEqual(a[y]!.slice(24, 36));
   });
 
   it('writes a white frame around the labels and handles partial tiles', () => {

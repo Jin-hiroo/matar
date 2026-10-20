@@ -7,7 +7,13 @@
  *   (p + 0.5)·2 − 0.5 (pixel centres at integers, §2.4).
  * - `adaptiveThreshold`: 4 × 4 px tiles, each tile's min and max, extrema
  *   dilated over the 3 × 3 tile neighbourhood, threshold (min + max) / 2.
- *   Pixels whose local max − min < `minContrast` are "unknown". The labels are
+ *   Pixels whose local max − min < `minContrast` are "unknown". With
+ *   `blockExtrema` (the detector's choice) a full tile's extrema are taken
+ *   over its four 2 × 2 block means: that halves the noise in max − min, so
+ *   flat paper with 2–4 DN sensor noise stays unknown instead of breaking into
+ *   large random black clusters (each pixel is still compared with the
+ *   threshold at full resolution). Real edges keep their extrema, since blocks
+ *   lie wholly on each side of an edge. The labels are
  *   written into a padded buffer ((w + 2) × (h + 2), a 1-px WHITE frame) that
  *   the border follower then uses as its work image.
  *
@@ -60,8 +66,9 @@ export function thresholdScratchSize(w: number, h: number): number {
  * writes the labels into `out`, a padded (w + 2) × (h + 2) buffer whose 1-px
  * frame is set to WHITE. Pixel (x, y) goes to `out[(y + 1)·(w + 2) + x + 1]`.
  *
- * `blockExtrema` (experimental): tile extrema over 2 × 2 block means instead of
- * pixels, which halves the noise in the contrast test.
+ * `blockExtrema`: full tiles take their extrema over 2 × 2 block means instead
+ * of pixels (see the header); partial tiles at the right and bottom edges use
+ * pixels.
  *
  * Written branch-free in the per-pixel loops (min/max and the label are bit
  * tricks on int32): with sensor noise, data-dependent branches mispredict and
