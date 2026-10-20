@@ -20,10 +20,12 @@ export {
   type TagSvgOptions,
 } from './board/index.js';
 export {
+  createFocalEstimator,
   createPoseFilter,
   estimatePose,
   focalPrior,
   projectionFromIntrinsics,
+  type FocalEstimatorOptions,
   type PoseOptions,
 } from './pose/index.js';
 export { createDetector } from './detect/index.js';

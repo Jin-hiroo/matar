@@ -315,7 +315,10 @@ refine from the board:
    and `fovPriorDeg` the long-side field of view (default **68°**, RESEARCH.md
    §1.3; Android EIS crops make it narrower). Principal point at the centre
    ((w − 1)/2, (h − 1)/2), square pixels, no skew, no distortion.
-2. **Keyframes** (worker): frames with ≥ 6 inlier tags, RMS < 1 px and board
+2. **Keyframes** (worker): frames with ≥ 6 inlier tags, an RMS < 1 px of the
+   frame's **own homography fit** (not `pose.rmsErrPx`: the pose was solved
+   with the current, possibly wrong f, so its RMS mostly measures the focal
+   error and would refuse the most tilted, most informative views) and board
    tilt ≥ 20°, each differing from the kept ones by ≥ 10° in viewing direction;
    keep up to 20 (drop the least tilted).
 3. **Closed form** (RESEARCH.md §2.5): per keyframe, the homography H (DLT,
@@ -331,10 +334,14 @@ refine from the board:
    deviation of the estimate is `std(fᵢ)/√N` as a % of f (N keyframes).
 5. **Accept** when ≥ 3 keyframes, the deviation < 1 %, and f ∈ [0.7, 1.4] ×
    prior. Emit `intrinsics` with `source: 'estimated'`. Keep refining until the
-   deviation < 0.3 %; once accepted, never move more than 2 % per update.
+   deviation < 0.3 % with at least 10 keyframes (with fewer, the spread has too
+   few degrees of freedom and < 0.3 % happens by chance); once accepted, never
+   move more than 2 % per update. `provided` intrinsics start accepted.
 6. **Jumps**: if 5 consecutive keyframe-quality frames each give a closed-form f
-   more than 10 % from the accepted one (e.g. a lens switch), drop the
-   keyframes and start again from the latest estimate.
+   more than 10 % from the accepted one (e.g. a lens switch) and agree within
+   5 % of their median, drop the keyframes and start again: the median becomes
+   the reference for the [0.7, 1.4] window and those frames seed the new
+   keyframe set.
 7. Integrators may persist `{ width, height, fx, fy, cx, cy }` per device and
    pass it back (`source: 'provided'`); calibration then only refines it.
    Intrinsics are reused only for the same frame size and orientation.
@@ -702,10 +709,10 @@ export function estimatePose(
   //                        dropMinPx 3, dropMedianFactor 3 (§5.2–5.4)
 ): BoardPose | null; // not re-entrant (module-level scratch buffers); one call at a time
 export function createPoseFilter(opts?: PoseFilterOptions): PoseFilter; // §5.6
-export function createFocalEstimator(initial: {
-  intrinsics: CameraIntrinsics;
-  source: 'prior' | 'provided';
-}): FocalEstimator; // §5.5
+export function createFocalEstimator(
+  initial: { intrinsics: CameraIntrinsics; source: 'prior' | 'provided' },
+  options?: Partial<FocalEstimatorOptions>, // thresholds of §5.5 (FOCAL_DEFAULTS)
+): FocalEstimator; // §5.5
 export function focalPrior(width: number, height: number, fovPriorDeg?: number): CameraIntrinsics;
 export function projectionFromIntrinsics(k: CameraIntrinsics, near: number, far: number): Mat4;
 // WebGL projection, column-major; near/far in camera-space units (§2.6)
