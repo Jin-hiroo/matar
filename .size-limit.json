@@ -1,0 +1,21 @@
+[
+  {
+    "name": "matar (core entry + module worker)",
+    "path": ["dist/index.js", "dist/worker/main.js"],
+    "limit": "35 KB",
+    "gzip": true
+  },
+  {
+    "name": "matar/three (three.js excluded)",
+    "path": "dist/three/index.js",
+    "ignore": ["three"],
+    "limit": "8 KB",
+    "gzip": true
+  },
+  {
+    "name": "worker chunk alone",
+    "path": "dist/worker/main.js",
+    "limit": "30 KB",
+    "gzip": true
+  }
+]

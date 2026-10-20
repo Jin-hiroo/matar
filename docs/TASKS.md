@@ -229,12 +229,20 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       the first second (end-to-end through Chromium's capture pipeline).
       Measured: every late frame has a pose; worst 0.47–0.54 mm / 0.07°; f
       converges to 474.7 px (truth 474.4).
-- [ ] **I3 Size + bundlers**: `.size-limit.json`; `pnpm size` passes (core +
+- [x] **I3 Size + bundlers**: `.size-limit.json`; `pnpm size` passes (core +
       worker ≤ 35 KB, three ≤ 8 KB min+gzip). Smoke apps installing the
       `pnpm pack` tarball build with Vite, webpack 5 and Next.js (Turbopack):
       the worker chunk is emitted, and in Chromium with the fake camera
       `ready` arrives and pose events follow; `import 'matar'` in Node (SSR)
       doesn't throw.
+      Measured (min+gzip): whole core entry + worker 33.8 KB; worker chunk
+      21.5 KB; matar/three 1.4 KB. With code splitting (esbuild), a typical
+      import (`createTracker` + board helpers) is 9.9 KB on the main thread
+      plus the worker; the 20.8 KB detect+pose chunk loads only for inline mode.
+      `pnpm smoke` (tests/smoke + scripts/smoke-bundlers.ts): Next.js 16.3
+      Turbopack build and dev, Next webpack build, Vite 8: each 30/30 poses
+      from the module worker, no foreign requests; the Next server component
+      imports matar during prerendering (SSR safe).
 - [ ] **I4 Release v0.1.0**: README usage, CHANGELOG, `pnpm pack` tarball for
       integrators; tag `v0.1.0`.
 

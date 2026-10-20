@@ -1,0 +1,11 @@
+{
+  "name": "matar-smoke-vite",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "matar": "MATAR_TGZ"
+  },
+  "devDependencies": {
+    "vite": "8.3.4"
+  }
+}
