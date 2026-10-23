@@ -7,7 +7,7 @@ No WebXR, no app, no server.
 [![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-blue)](CHANGELOG.md)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)](package.json)
-[![Size: 34 KB min+gzip including the worker](https://img.shields.io/badge/size-34%20KB%20gzip-brightgreen)](.size-limit.json)
+[![Size: 35 KB min+gzip including the worker](https://img.shields.io/badge/size-35%20KB%20gzip-brightgreen)](.size-limit.json)
 [![Not yet tested on real phones](https://img.shields.io/badge/real%20phones-not%20yet%20tested-orange)](docs/DEVICE-TESTS.md)
 
 [Spec](docs/SPEC.md) · [Architecture](docs/ARCHITECTURE.md) · [Demo](#demo) ·

@@ -372,12 +372,17 @@ refine from the board:
    and `fovPriorDeg` the long-side field of view (default **68°**, RESEARCH.md
    §1.3; Android EIS crops make it narrower). Principal point at the centre
    ((w − 1)/2, (h − 1)/2), square pixels, no skew, no distortion.
-2. **Keyframes** (worker): frames with ≥ 6 inlier tags, an RMS < 1 px of the
-   frame's **own homography fit** (not `pose.rmsErrPx`: the pose was solved
-   with the current, possibly wrong f, so its RMS mostly measures the focal
-   error and would refuse the most tilted, most informative views) and board
-   tilt ≥ 20°, each differing from the kept ones by ≥ 10° in viewing direction;
-   keep up to 20 (drop the least tilted).
+2. **Keyframes** (worker): frames with ≥ 6 inlier tags, an RMS < 1 px or
+   < 1 mm on the paper of the frame's **own homography fit** (not
+   `pose.rmsErrPx`: the pose was solved with the current, possibly wrong f, so
+   its RMS mostly measures the focal error and would refuse the most tilted,
+   most informative views) and board tilt ≥ 20°, each differing from the kept
+   ones by ≥ 10° in viewing direction; keep up to 20 (drop the least tilted).
+   The mm are the px over the corners' image scale: their RMS distance from
+   their centroid in the image over that on the board (from the points, so a
+   poor homography can't inflate it). Up close a pixel is less paper, and a
+   phone at 291 mm and 47–54° tilt had fits of 1.1–1.5 px, none under 1 px
+   (DEVICE-TESTS.md, 2026-10-23).
 3. **Closed form** (RESEARCH.md §2.5): per keyframe, the homography H (DLT,
    §5.2) from board (x, z) mm to **centred, scaled pixels**
    ((u − cx)/L, (v − cy)/L), L = the frame's long side, gives two linear
@@ -395,10 +400,15 @@ refine from the board:
    few degrees of freedom and < 0.3 % happens by chance); once accepted, never
    move more than 2 % per update. `provided` intrinsics start accepted.
 6. **Jumps**: if 5 consecutive keyframe-quality frames each give a closed-form f
-   more than 10 % from the accepted one (e.g. a lens switch) and agree within
-   5 % of their median, drop the keyframes and start again: the median becomes
-   the reference for the [0.7, 1.4] window and those frames seed the new
-   keyframe set.
+   more than 10 % from the one in use (e.g. a lens switch) and agree within 5 %
+   of their median, drop the keyframes and start again: the median is used at
+   once (not accepted; step 5 accepts later as usual), becomes the reference
+   for the [0.7, 1.4] window, and those frames seed the new keyframe set. This
+   runs in every state: from the prior, and after a jump before acceptance (a
+   lens switch back), only if the median is inside the [0.7, 1.4] window, and
+   the frames count as keyframes too. Step 2's viewing directions need the
+   phone moved round the board; a phone held at one angle stayed on a prior
+   20 % short, err 3.4 px against 0.64 px (DEVICE-TESTS.md, 2026-10-23).
 7. Integrators may persist `{ width, height, fx, fy, cx, cy }` per device and
    pass it back (`source: 'provided'`); calibration then only refines it.
    Intrinsics are reused only for the same frame size and orientation.

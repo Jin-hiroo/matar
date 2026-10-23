@@ -80,6 +80,21 @@ paper and the video lagged behind the camera.
   starts the inline fallback anyway.
 - A camera reacquire (a track that ended in the background) still pending across
   `stop()` and `start()` no longer replaces the new camera and leaks its stream.
+- Focal self-calibration up close: a keyframe's homography fit now qualifies under
+  1 px **or** under 1 mm on the paper (new `FocalEstimatorOptions.maxFitRmsMm`; the
+  mm from the corners' image scale, their spread in the image over that on the
+  board). Up close a pixel is less paper: on a phone at 291 mm and 47–54° tilt the
+  fits were 1.1–1.5 px and no frame qualified, so a fresh start there kept the 68°
+  prior. In the synthetic tests with σ 1–1.4 px at 230–300 mm, 0 of 150 runs
+  calibrated before and 150 of 150 now (f error median 0.13–0.2 %, max 2.2 %).
+- Focal self-calibration from one angle: a prior more than 10 % off is replaced by the
+  median of 5 consecutive good frames that agree within 5 %. This is the jump rule,
+  which only ran after acceptance; it now runs in every state (inside [0.7, 1.4] ×
+  the reference until accepted), so a lens switch back right after a jump is
+  followed too. Accepting still needs 3 viewing directions 10° apart, which needs
+  the phone moved round the board; held at one angle, a phone stayed on its prior
+  20 % short (err 3.4 px against 0.64 px with the right focal length).
+
 ### Added
 
 - `MatarThree` `background: 'live'`: the newest camera frame with the pose
