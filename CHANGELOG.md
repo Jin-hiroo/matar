@@ -98,7 +98,8 @@ paper and the video lagged behind the camera.
 ### Added
 
 - `MatarThree` `background: 'live'`: the newest camera frame with the pose
-  extrapolated to it, for the lowest latency (demo: `?bg=live`).
+  extrapolated to it, for the lowest latency (demo: `?bg=live`). Opt-in: on the
+  first Android test the default `synced` felt better (docs/DEVICE-TESTS.md).
 - Demo: after Start, **Mode** switches between `frame` and `live` without a reload,
   and **Copy report** copies the last 5 s of timings (fps, per-stage worker times,
   how old the background and the pose are at render, spacing of the analysed frames,

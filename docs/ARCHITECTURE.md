@@ -698,8 +698,10 @@ worker delay), and `update()` extrapolates the newest pose at constant
 velocity (position linearly, rotation as `q₁ · (q₀⁻¹ q₁)^k`) to that frame's
 `expectedDisplayTime`, at most 100 ms and 3 pose intervals ahead; no
 extrapolation across a gap > 250 ms. Content can swim slightly during sudden
-moves. Which mode feels better on phones is a device-test question
-(DEVICE-TESTS.md).
+moves. On the first Android device test (DEVICE-TESTS.md, 2026-10-21) `synced`
+felt better: its background was ≈ 36 ms old at render, but `live` content
+lagged its current background by 33 ms (p90 67 ms), and that showed more.
+`synced` stays the default; `live` is opt-in.
 Accepted by a real-three test in Chromium (Playwright,
 `playwright.three.config.ts`): render, read pixels back, and check the
 background is frame N's content when pose N is applied, for both texture
