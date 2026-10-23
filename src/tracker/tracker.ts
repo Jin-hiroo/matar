@@ -15,6 +15,9 @@
  *   stats.
  * - Lifecycle (§6.4): hidden page or muted track → `paused`; visible and
  *   unmuted → `running`, re-acquiring the camera if the track ended meanwhile.
+ * - `camera.maxExposureMs` (§6.1): `EXPOSURE_SETTLE_MS` after each camera
+ *   opens (start or reacquire), `shortenExposure` (src/camera/exposure.ts);
+ *   its outcome is `stats.camera.exposure`.
  * - Worker failure (constructor throws, `error` before `ready`, or no `ready`
  *   in time) → `worker-failed` error event and the inline path; the state
  *   doesn't change.
@@ -27,6 +30,7 @@ import {
   checkCameraEnvironment,
   MatarError,
   openCamera,
+  shortenExposure,
   reopenCamera,
   stopStream,
   toCameraError,
@@ -37,6 +41,7 @@ import { currentPlatform, type Platform } from '../camera/platform.js';
 import { createPoseFilter } from '../pose/index.js';
 import type {
   Board,
+  CameraExposure,
   CameraIntrinsics,
   FocalSource,
   FrameInfo,
@@ -78,6 +83,8 @@ export interface TrackerEnv {
   onVisibilityChange(cb: () => void): () => void;
   screenAngleDeg(): number;
   now(): number;
+  /** resolves after `ms` */
+  sleep(ms: number): Promise<void>;
   /** how long to wait for the worker's `ready`, ms */
   readyTimeoutMs: number;
 }
@@ -119,6 +126,7 @@ export function browserEnv(): TrackerEnv {
     screenAngleDeg: () =>
       typeof screen !== 'undefined' && screen.orientation ? screen.orientation.angle : 0,
     now: () => performance.now(),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     readyTimeoutMs: 10_000,
   };
 }
@@ -138,6 +146,18 @@ export function createTracker(opts: TrackerOptions, env: TrackerEnv = browserEnv
 
 type ResultMsg = Extract<WorkerToMain, { type: 'result' }>;
 
+/** `camera.maxExposureMs`: let the automatic exposure settle this long after the camera opens, ms */
+export const EXPOSURE_SETTLE_MS = 1000;
+/** …then read the settings back this long after setting the exposure, ms */
+export const EXPOSURE_CONFIRM_MS = 500;
+
+const EXPOSURE_OFF: CameraExposure = Object.freeze({ state: 'off', timeMs: null, iso: null });
+const EXPOSURE_PENDING: CameraExposure = Object.freeze({
+  state: 'pending',
+  timeMs: null,
+  iso: null,
+});
+
 const EMPTY_FRAME: FrameInfo = {
   path: 'videoframe',
   format: null,
@@ -153,6 +173,7 @@ class TrackerImpl extends EventTarget implements Tracker {
   private _intrinsics: CameraIntrinsics | null = null;
   private board: Board;
   private camera: OpenedCamera | null = null;
+  private exposure: CameraExposure = EXPOSURE_OFF;
   private port: WorkerPort | null = null;
   private ownsPort = false;
   private source: FrameSource;
@@ -221,11 +242,14 @@ class TrackerImpl extends EventTarget implements Tracker {
         hasGetUserMedia: typeof md?.getUserMedia === 'function',
       });
       if (envError || !md) throw new MatarError(envError ?? 'no-camera-api');
-      const camera = await openCamera(md, this.env.platform(), this.opts.camera ?? {});
+      const { width, height, frameRate, deviceId } = this.opts.camera ?? {};
+      const request = { width, height, frameRate, deviceId }; // what getUserMedia takes
+      const camera = await openCamera(md, this.env.platform(), request);
       if (!this.live(gen)) return stopStream(camera.stream);
       this.camera = camera;
       await this.attachStream();
       if (!this.live(gen)) return;
+      void this.applyExposure(camera, gen);
       await this.startPort(gen);
       if (!this.live(gen)) return;
       this.hiddenNow = this.env.hidden();
@@ -311,7 +335,30 @@ class TrackerImpl extends EventTarget implements Tracker {
     for (const c of this.trackCleanups.splice(0)) c();
     if (this.camera) stopStream(this.camera.stream);
     this.camera = null;
+    this.exposure = EXPOSURE_OFF;
     this.video.srcObject = null;
+  }
+
+  /** `camera.maxExposureMs` on a newly opened camera (§6.1); never throws. */
+  private async applyExposure(camera: OpenedCamera, gen: number): Promise<void> {
+    const maxMs = this.opts.camera?.maxExposureMs;
+    if (maxMs === undefined || !(maxMs > 0) || !Number.isFinite(maxMs)) return;
+    // the tracker's camera, still live (reacquire stops the old track before
+    // replacing it; stop() releases it)
+    const current = () =>
+      this.live(gen) && this.camera === camera && camera.track.readyState === 'live';
+    if (!current()) return;
+    this.exposure = EXPOSURE_PENDING;
+    try {
+      await this.env.sleep(EXPOSURE_SETTLE_MS);
+      if (!current()) return;
+      const wait = () => this.env.sleep(EXPOSURE_CONFIRM_MS);
+      const result = await shortenExposure(camera.track, maxMs, wait, current);
+      if (result && current()) this.exposure = Object.freeze(result);
+    } catch {
+      // only the settle wait can throw here; nothing was applied
+      if (current()) this.exposure = EXPOSURE_OFF;
+    }
   }
 
   private reacquire(): Promise<void> {
@@ -329,6 +376,7 @@ class TrackerImpl extends EventTarget implements Tracker {
         this.camera = camera;
         await this.attachStream();
         if (!this.live(gen)) return;
+        void this.applyExposure(camera, gen);
         this.filter?.reset();
         this.updatePause();
       } catch (e) {
@@ -513,6 +561,7 @@ class TrackerImpl extends EventTarget implements Tracker {
         label: cam?.label ?? '',
         lens: cam?.lens ?? 'unknown',
         devices: cam?.devices.map((d) => d.label) ?? [],
+        exposure: this.exposure,
       },
       focal: { fx: msg.intrinsics.fx, source: this.focal.source, stdDevPct: this.focal.stdDevPct },
       worker: this.port?.kind ?? 'inline',

@@ -12,11 +12,13 @@ export class FakeTrack extends EventTarget {
   muted = false;
   stopped = false;
   readonly applied: MediaTrackConstraints[] = [];
+  /** what the browser does with each `advanced` set (default: nothing, settings unchanged) */
+  onApply: ((set: Record<string, unknown>, track: FakeTrack) => void) | null = null;
 
   constructor(
     readonly deviceId: string,
     readonly label: string,
-    readonly caps: { zoom?: { min: number; max: number } } = {},
+    readonly caps: Record<string, unknown> = {},
     readonly settings: Record<string, unknown> = {},
   ) {
     super();
@@ -30,6 +32,11 @@ export class FakeTrack extends EventTarget {
   }
   applyConstraints(c: MediaTrackConstraints): Promise<void> {
     this.applied.push(c);
+    try {
+      for (const set of c.advanced ?? []) this.onApply?.(set as Record<string, unknown>, this);
+    } catch (e) {
+      return Promise.reject(e instanceof Error ? e : new Error(String(e)));
+    }
     return Promise.resolve();
   }
   stop(): void {
@@ -66,6 +73,10 @@ export interface FakeDevice {
   deviceId: string;
   label: string;
   zoom?: { min: number; max: number };
+  /** more capabilities and settings of its tracks (e.g. Image Capture exposure) */
+  caps?: Record<string, unknown>;
+  settings?: Record<string, unknown>;
+  onApply?: FakeTrack['onApply'];
 }
 
 /**
@@ -94,7 +105,9 @@ export class FakeMediaDevices implements MediaDevicesLike {
     const id = exact ?? this.defaultId;
     const dev = this.devices.find((d) => d.deviceId === id);
     if (!dev) return Promise.reject(domError('OverconstrainedError'));
-    const track = new FakeTrack(dev.deviceId, dev.label, dev.zoom ? { zoom: dev.zoom } : {});
+    const caps = { ...dev.caps, ...(dev.zoom ? { zoom: dev.zoom } : {}) };
+    const track = new FakeTrack(dev.deviceId, dev.label, caps, { ...dev.settings });
+    track.onApply = dev.onApply ?? null;
     this.opened.push(track);
     return Promise.resolve(new FakeStream([track]) as unknown as MediaStream);
   }

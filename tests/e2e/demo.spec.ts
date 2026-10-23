@@ -240,12 +240,22 @@ test('?exposure= reports what became of it and keeps tracking', async ({
   const requests = await startDemo(page, '&exposure=4');
   const state = await waitForEvents(page, 20);
   expect(state.events.slice(-10).some((e) => e.pose)).toBe(true);
-  await page.getByRole('button', { name: 'Copy report' }).click();
-  await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
-  const report = await page.evaluate(() => navigator.clipboard.readText());
-  // the fake camera has no manual exposure; a phone shows "asked 4.0 ms ISO …"
-  expect(report).toMatch(/exposure .*; \?exposure=4: (no manual mode|asked |\S+ ms.* failed )/);
-  expect(report).toContain('url ?debug&exposure=4');
+  const copyReport = async () => {
+    await page.getByRole('button', { name: /Copy report|Copied/ }).click();
+    return page.evaluate(() => navigator.clipboard.readText());
+  };
+  // the fake camera has no manual exposure: 'unsupported' once it has settled
+  // (EXPOSURE_SETTLE_MS); a phone with it shows "set"
+  await expect
+    .poll(
+      async () =>
+        /exposure .*; \?exposure=4 \(camera\.maxExposureMs\): (.*)/.exec(await copyReport())?.[1],
+      {
+        timeout: 10_000,
+      },
+    )
+    .toBe('no manual exposure with ISO control here');
+  expect(await copyReport()).toContain('url ?debug&exposure=4');
   expect(errors).toEqual([]);
   checkPrivacy(requests, new URL(baseURL!).origin);
 });

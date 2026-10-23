@@ -108,16 +108,25 @@ paper and the video lagged behind the camera.
   camera's reported exposure (so the motion blur in px), tags found and used, the
   corner error by distance from the image centre, and the focal length that fits
   tilted frames best, and the camera list) for device-test notes. `?fov=` sets the
-  long-side field of view the tracker starts from; `?exposure=` (ms) tries a manual
-  exposure time on the camera, the ISO scaled to keep the brightness or set with
-  `?iso=` (an experiment against motion blur; the library itself leaves exposure
-  alone). The demo saves the focal length the tracker measures in `localStorage`
+  long-side field of view the tracker starts from; `?exposure=` (ms) sets
+  `camera.maxExposureMs` and reports what became of it. The demo saves the focal length the tracker measures in `localStorage`
   under the camera's label and starts the next time from it on that camera
   (`TrackerOptions.intrinsics`, `camera.deviceId` looked up by label), so the
   calibration isn't redone on every load; `?fresh` forgets it. The report shows the
   URL options, where the focal length came from, (`calib`) how many frames pass
   each keyframe rule of the self-calibration (in the window and since Start), the
   time to the first estimate, and the `err` in mm on the paper.
+- `TrackerOptions.camera.maxExposureMs` (opt-in): a shorter exposure against motion
+  blur. About 1 s after the camera opens, an automatic exposure longer than this is
+  set to it with the ISO raised by the same factor (Image Capture manual exposure,
+  Android Chrome); the settings are read back 0.5 s later and the camera goes back to
+  automatic unless it reports the time asked for. Fixed from then on (it doesn't
+  follow the light). `stats.camera.exposure` reports the outcome (`ExposureState`;
+  a new required field of `TrackerStats.camera`, so code that builds stats objects,
+  such as test doubles, needs it).
+  iOS Safari has no exposure constraints: `'unsupported'`. On the Android test phone
+  4 ms kept a pose on every frame of a fast shake where the 10 ms automatic exposure
+  lost 21 of 150. The demo's `?exposure=` now uses it (`?iso=` is gone).
 - Demo hosting on Vercel: `vercel.json` (build `pnpm demo:build`, serve `demo/dist`,
   immutable hashed assets) and `.vercelignore` (upload only what the build reads).
   `MATAR_DEMO_URL=<url>` points the demo e2e at a deployed copy.

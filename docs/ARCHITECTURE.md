@@ -489,6 +489,26 @@ tries to stay on one lens:
 The demo HUD shows every `videoinput` label and the chosen one, so device
 tests collect real labels (DEVICE-TESTS.md).
 
+**Exposure** (`camera.maxExposureMs`, opt-in; src/camera/exposure.ts). Motion
+blur longer than about a tag cell loses tags; the automatic exposure on the
+Android test phone was 10–30 ms. A shorter one costs light, so the ISO goes up
+by the same factor. About 1 s after each camera opens (start or reacquire,
+for the automatic exposure to settle), if the track offers Image Capture's
+`exposureMode: 'manual'` with `exposureTime` (100 µs units) and `iso`, and its
+current exposure is longer than the maximum: set `exposureTime` to the
+maximum and `iso` to current × old / new time, each clamped to its range.
+0.5 s later read the settings back; unless the exposure time is the one asked
+for (± 100 µs), go back to `exposureMode: 'continuous'`. Chrome once took the
+ISO but kept 10 ms while resolving `applyConstraints`. The outcome is
+`stats.camera.exposure` (`ExposureState`: `off`, `pending`, `unsupported`,
+`auto` when it was already that short, `short`, `refused`). The manual
+exposure stays fixed and doesn't follow later changes of light, and the ISO
+cap can leave dim scenes darker. Chrome on Android offers it; iOS Safari has
+no exposure constraints (RESEARCH.md §1.4). On the test phone, 4 ms (ISO 624)
+kept a pose on 150 / 150 frames at 442 / 958 px/s where 10 ms lost 21 of 150
+at 289 / 753 px/s, with the same corner error when held still (DEVICE-TESTS.md,
+2026-10-23; measured with the demo's own version of this).
+
 ### 6.2 Frame path
 
 **v0.1 path (iOS 17+, Android Chrome; one code path):** in the main-thread
@@ -764,6 +784,8 @@ export type {
   TrackerState,
   TrackerErrorCode,
   LensKind,
+  ExposureState,
+  CameraExposure,
   TrackerOptions,
   TrackerStats,
   Tracker,

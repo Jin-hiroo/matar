@@ -10,9 +10,9 @@
  * extrapolated pose: lower latency), `?pose=smoothed` (One Euro output instead
  * of each frame's own pose), `?fov=85` (the long-side field of view to start
  * from instead of the 68° prior; the report's `fit` line suggests one),
- * `?exposure=4` (a manual exposure time in ms, where the camera allows it, with
- * the ISO raised to keep the brightness; `&iso=800` sets the ISO instead; a
- * demo experiment against motion blur, the library leaves exposure alone),
+ * `?exposure=4` (`camera.maxExposureMs`: a shorter exposure against motion
+ * blur, ms, where the camera allows it, the ISO raised to keep the
+ * brightness),
  * `?fresh` (forget the saved calibration). The focal length the tracker
  * measures is saved in `localStorage` with the camera's label; the next
  * Start opens that camera and begins from it (`TrackerOptions.intrinsics`),
@@ -39,6 +39,7 @@ import { FOCAL_DEFAULTS } from '../src/pose/focal.js';
 import { MatarThree, mmToM } from '../src/three/index.js';
 import { createTracker } from '../src/tracker/index.js';
 import type {
+  CameraExposure,
   CameraIntrinsics,
   IntrinsicsEvent,
   PoseEvent,
@@ -54,11 +55,10 @@ let bg = params.get('bg') ?? 'frame';
 const poseKind = params.get('pose') === 'smoothed' ? 'smoothed' : 'raw';
 /** `?fov=`: the long-side field of view to start from, degrees (default: the library's 68° prior) */
 const fovDeg = Number(params.get('fov'));
-/** `?exposure=`: a manual exposure time, ms; `?iso=`: its ISO (default: keep the brightness) */
+/** `?exposure=`: `camera.maxExposureMs` */
 const exposureReqMs = Number(params.get('exposure'));
-const isoReq = Number(params.get('iso'));
-/** what became of `?exposure=`, for the report */
-let exposureNote = '';
+/** what became of it (the newest pose event's `stats.camera.exposure`), for the report */
+let exposureStats: CameraExposure | null = null;
 
 /**
  * A self-calibration saved in `localStorage`: the camera it was measured on
@@ -139,6 +139,10 @@ async function start(): Promise<void> {
     debug,
     ...(fovDeg > 10 && fovDeg < 170 ? { fovPriorDeg: fovDeg } : {}),
     ...restore,
+    camera: {
+      ...restore?.camera,
+      ...(exposureReqMs > 0 ? { maxExposureMs: exposureReqMs } : {}),
+    },
   });
   tracker.addEventListener('intrinsics', (e) => {
     const { intrinsics, source } = e as IntrinsicsEvent;
@@ -247,6 +251,7 @@ async function start(): Promise<void> {
 
   tracker.addEventListener('pose', (e) => {
     last = e;
+    exposureStats = e.stats.camera.exposure;
     report.addPose(e, performance.now());
     const m = e.pose?.boardFromCamera;
     if (
@@ -315,62 +320,6 @@ async function start(): Promise<void> {
   } catch {
     return; // shown by the error listener
   }
-  if (exposureReqMs > 0) {
-    const track = (video.srcObject as MediaStream | null)?.getVideoTracks()[0];
-    exposureNote = `; ?exposure=${exposureReqMs}: no camera track`;
-    if (track) void setExposure(track, exposureReqMs, isoReq > 0 ? isoReq : null);
-  }
-}
-
-/**
- * `?exposure=`: manual exposure on the camera track (Image Capture
- * constraints, Chrome on Android). Without an ISO, scales the current one by
- * the exposure ratio, clamped to the camera's range, so the image stays about
- * as bright. Keeps `exposureNote` current for the report, also while the
- * browser hasn't answered.
- */
-async function setExposure(track: MediaStreamTrack, timeMs: number, iso: number | null) {
-  exposureNote = `; ?exposure=${timeMs}: checking the camera`;
-  exposureNote = await applyExposure(track, timeMs, iso);
-}
-
-async function applyExposure(
-  track: MediaStreamTrack,
-  timeMs: number,
-  iso: number | null,
-): Promise<string> {
-  const st = track.getSettings() as ExposureSettings;
-  let caps: ExposureCapabilities = {};
-  try {
-    caps = (track.getCapabilities?.() ?? {}) as ExposureCapabilities;
-  } catch {
-    // nothing reported
-  }
-  if (!caps.exposureMode?.includes('manual')) return `; ?exposure=${timeMs}: no manual mode`;
-  const clamp = (v: number, r: { min?: number; max?: number } | undefined) =>
-    Math.min(r?.max ?? v, Math.max(r?.min ?? v, v));
-  const time = clamp(timeMs * 10, caps.exposureTime); // 100 µs units
-  const want: Record<string, unknown> = { exposureMode: 'manual', exposureTime: time };
-  if (iso === null && st.iso !== undefined && st.exposureTime) {
-    iso = (st.iso * st.exposureTime) / time;
-  }
-  if (iso !== null) want.iso = Math.round(clamp(iso, caps.iso));
-  const asked = `${(time / 10).toFixed(1)} ms${want.iso === undefined ? '' : ` ISO ${String(want.iso)}`}`;
-  exposureNote = `; ?exposure=${timeMs}: asked ${asked}, no answer from the browser yet`;
-  try {
-    await track.applyConstraints({ advanced: [want as MediaTrackConstraintSet] });
-  } catch (e) {
-    return `; ?exposure=${timeMs}: ${asked} failed (${e instanceof Error ? `${e.name}: ${e.message}` : String(e)})`;
-  }
-  // Chrome resolved this once with the ISO applied and the time left at 10 ms
-  // (DEVICE-TESTS.md, 2026-10-23): read the settings back after a moment
-  await new Promise((r) => setTimeout(r, 500));
-  const got = (track.getSettings() as ExposureSettings).exposureTime;
-  const took =
-    got === undefined || Math.abs(got - time) <= 1
-      ? ''
-      : `, but the camera reports ${(got / 10).toFixed(1)} ms 0.5 s later`;
-  return `; ?exposure=${timeMs}: asked ${asked}, accepted${took}`;
 }
 
 function loadCalibration(): SavedCalibration | null {
@@ -454,6 +403,21 @@ interface ExposureCapabilities {
   iso?: { min?: number; max?: number };
 }
 
+const EXPOSURE_STATES: Record<CameraExposure['state'], string> = {
+  off: '',
+  pending: 'waiting for the camera to settle or confirm',
+  unsupported: 'no manual exposure with ISO control here',
+  auto: 'the automatic exposure was already that short',
+  short: 'set',
+  refused: 'refused or not applied: back to automatic',
+};
+
+/** What became of `?exposure=` (`camera.maxExposureMs`), for the report. */
+function exposureNote(): string {
+  if (!(exposureReqMs > 0)) return '';
+  return `; ?exposure=${exposureReqMs} (camera.maxExposureMs): ${exposureStats ? EXPOSURE_STATES[exposureStats.state] || exposureStats.state : 'no pose event yet'}`;
+}
+
 /** What the browser says about the exposure: the current values and what could be set. */
 function exposureInfo(video: HTMLVideoElement): Pick<ReportContext, 'exposure' | 'exposureMs'> {
   const track = (video.srcObject as MediaStream | null)?.getVideoTracks()[0];
@@ -483,7 +447,7 @@ function exposureInfo(video: HTMLVideoElement): Pick<ReportContext, 'exposure' |
     range(caps.iso, 1, 0) && `ISO ${range(caps.iso, 1, 0)}`,
   ].filter((x) => x);
   return {
-    exposure: `${now.join(', ')}; settable: ${settable.length ? settable.join(', ') : 'nothing reported'}${exposureNote}`,
+    exposure: `${now.join(', ')}; settable: ${settable.length ? settable.join(', ') : 'nothing reported'}${exposureNote()}`,
     exposureMs,
   };
 }

@@ -1,6 +1,6 @@
 /**
  * Camera (ARCHITECTURE.md §6.1, §6.4): `getUserMedia` constraints, lens
- * pinning as a pure decision, `listCameras`, and error codes. The lead
+ * pinning as a pure decision, `listCameras`, a shorter exposure, and error codes. The lead
  * re-exports the public parts (`listCameras`) from `src/index.ts`.
  */
 export { cameraConstraints, DEFAULT_CAMERA, type CameraRequest } from './constraints.js';
@@ -23,6 +23,7 @@ export {
   toCameraError,
 } from './errors.js';
 export { isRearCamera, listCameras, toCameraList, type CameraInfo } from './list.js';
+export { readExposure, shortenExposure, type ExposureTrack } from './exposure.js';
 export {
   openCamera,
   reopenCamera,

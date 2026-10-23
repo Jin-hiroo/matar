@@ -136,7 +136,13 @@ back`, DEVICE-TESTS.md). Older Chrome wrote `"camera2 N, facing back"`. The lowe
 - **Chrome Android**: continuous autofocus (`CONTINUOUS_PICTURE`) and EIS on by
   default (code-reading, high); zoom from Chrome 87; torch/focusMode/
   focusDistance/exposureMode via Image Capture extensions (versions
-  **UNVERIFIED**).
+  **UNVERIFIED**). Measured on one phone (Chrome 155, DEVICE-TESTS.md
+  2026-10-23): capabilities `exposureMode` continuous/manual, `exposureTime`
+  0–1500 (100 µs units, so 0–150 ms), `iso` 12–3200; the automatic exposure
+  was 10, 20 or 30 ms; in manual mode the settings report `exposureMode`
+  `none`. A manual 4 ms with the ISO scaled took effect, but once
+  `applyConstraints` resolved with the ISO applied and the time left at 10 ms,
+  so the settings have to be read back.
 
 ### 1.5 iOS gotchas
 

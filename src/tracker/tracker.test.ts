@@ -19,7 +19,12 @@ import type {
 } from '../types.js';
 import type { WorkerPort } from '../worker/port.js';
 import type { FrameSource } from './grab.js';
-import { createTracker, type TrackerEnv } from './tracker.js';
+import {
+  createTracker,
+  EXPOSURE_CONFIRM_MS,
+  EXPOSURE_SETTLE_MS,
+  type TrackerEnv,
+} from './tracker.js';
 
 const BOARD: Board = {
   family: 'tag36h11',
@@ -186,6 +191,7 @@ function harness(
     },
     screenAngleDeg: () => 0,
     now: () => 0,
+    sleep: () => Promise.resolve(),
     readyTimeoutMs: 50,
     ...over,
   };
@@ -411,6 +417,108 @@ describe('tracker', () => {
     expect(canvasMade).toBe(1);
     h.video.tick(2); // in-flight cleared by the fallback
     expect(h.worker.frames()).toHaveLength(2);
+    tracker.stop();
+  });
+
+  /** the harness's camera with the Android test phone's exposure controls, applying what it is asked */
+  function exposureCamera(h: Harness): void {
+    Object.assign(h.md.devices[0]!, {
+      caps: {
+        exposureMode: ['continuous', 'manual'],
+        exposureTime: { min: 0, max: 1500 },
+        iso: { min: 12, max: 3200 },
+      },
+      settings: { exposureMode: 'continuous', exposureTime: 100, iso: 250 },
+      onApply: (set: Record<string, unknown>, t: { settings: Record<string, unknown> }) =>
+        Object.assign(t.settings, set),
+    });
+  }
+
+  it('camera.maxExposureMs: set once the camera has settled and confirmed; in stats', async () => {
+    const h = harness();
+    exposureCamera(h);
+    const slept: number[] = [];
+    h.env.sleep = (ms) => (slept.push(ms), Promise.resolve());
+    const tracker = createTracker({ board: BOARD, camera: { maxExposureMs: 4 } }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    await tick();
+    // not a getUserMedia constraint
+    expect(JSON.stringify(h.md.calls)).not.toContain('xposure');
+    expect(slept).toEqual([EXPOSURE_SETTLE_MS, EXPOSURE_CONFIRM_MS]);
+    expect(h.md.opened[0]!.applied).toEqual([
+      { advanced: [{ exposureMode: 'manual', exposureTime: 40, iso: 625 }] },
+    ]);
+    h.video.tick(100);
+    h.worker.result(1, 100, pose(5));
+    expect(poses[0]!.stats.camera.exposure).toEqual({ state: 'short', timeMs: 4, iso: 625 });
+    tracker.stop();
+  });
+
+  it('camera.maxExposureMs: not asked → off; stop() while it waits leaves the camera alone', async () => {
+    const plain = harness();
+    const t0 = createTracker({ board: BOARD }, plain.env);
+    const poses: PoseEvent[] = [];
+    t0.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await t0.start();
+    plain.video.tick(100);
+    plain.worker.result(1, 100, pose(5));
+    expect(poses[0]!.stats.camera.exposure.state).toBe('off');
+    t0.stop();
+
+    const h = harness();
+    exposureCamera(h);
+    let settle = () => {};
+    h.env.sleep = () => new Promise<void>((r) => (settle = r));
+    const tracker = createTracker({ board: BOARD, camera: { maxExposureMs: 4 } }, h.env);
+    await tracker.start();
+    tracker.stop();
+    settle();
+    await tick();
+    expect(h.md.opened[0]!.applied).toEqual([]);
+  });
+
+  it('camera.maxExposureMs: a reacquire while it waits leaves the old track alone', async () => {
+    const h = harness();
+    exposureCamera(h);
+    const sleeps: (() => void)[] = [];
+    h.env.sleep = () => new Promise<void>((r) => sleeps.push(r));
+    const tracker = createTracker({ board: BOARD, camera: { maxExposureMs: 4 } }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    h.md.opened[0]!.end(); // e.g. Android ended the track in the background
+    for (let i = 0; i < 5; i++) {
+      await tick();
+      for (const r of sleeps.splice(0)) r();
+    }
+    expect(h.md.opened).toHaveLength(2);
+    expect(h.md.opened[0]!.applied).toEqual([]);
+    expect(h.md.opened[1]!.applied).toEqual([
+      { advanced: [{ exposureMode: 'manual', exposureTime: 40, iso: 625 }] },
+    ]);
+    h.video.tick(100);
+    h.worker.result(1, 100, pose(5));
+    const exposure = poses[0]!.stats.camera.exposure;
+    expect(exposure).toEqual({ state: 'short', timeMs: 4, iso: 625 });
+    expect(Object.isFrozen(exposure)).toBe(true);
+    tracker.stop();
+  });
+
+  it('camera.maxExposureMs: a failing timer is no unhandled rejection and changes nothing', async () => {
+    const h = harness();
+    exposureCamera(h);
+    h.env.sleep = () => Promise.reject(new Error('timer'));
+    const tracker = createTracker({ board: BOARD, camera: { maxExposureMs: 4 } }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    await tick();
+    expect(h.md.opened[0]!.applied).toEqual([]);
+    h.video.tick(100);
+    h.worker.result(1, 100, pose(5));
+    expect(poses[0]!.stats.camera.exposure.state).toBe('off');
     tracker.stop();
   });
 

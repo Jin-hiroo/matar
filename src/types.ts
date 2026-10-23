@@ -329,11 +329,51 @@ export type TrackerErrorCode =
 
 export type LensKind = 'pinned' | 'virtual' | 'unknown';
 
+/** What became of `TrackerOptions.camera.maxExposureMs` (ARCHITECTURE.md §6.1). */
+export type ExposureState =
+  /** not asked for */
+  | 'off'
+  /** waiting for the automatic exposure to settle, or for the camera to confirm */
+  | 'pending'
+  /** no manual exposure with ISO control on this camera or browser (e.g. iOS Safari), or none shorter */
+  | 'unsupported'
+  /** the automatic exposure was already that short: left alone */
+  | 'auto'
+  /** set to the maximum, and the camera reports it */
+  | 'short'
+  /**
+   * refused, or the camera reported another time: automatic exposure asked for
+   * again (`timeMs` and `iso` are what the camera reports after that)
+   */
+  | 'refused';
+
+export interface CameraExposure {
+  readonly state: ExposureState;
+  /** the camera's exposure time when last checked, ms; null if not reported */
+  readonly timeMs: number | null;
+  /** its ISO then; null if not reported */
+  readonly iso: number | null;
+}
+
 export interface TrackerOptions {
   board: Board;
   /** created if omitted: playsinline, muted, kept in the DOM (1 × 1 px, opacity 0) */
   video?: HTMLVideoElement;
-  camera?: { width?: number; height?: number; frameRate?: number; deviceId?: string };
+  camera?: {
+    width?: number;
+    height?: number;
+    frameRate?: number;
+    deviceId?: string;
+    /**
+     * Shorter exposure against motion blur, ms (Android Chrome: Image Capture
+     * manual exposure). About 1 s after the camera opens, an automatic
+     * exposure longer than this is set to it, with the ISO raised by the same
+     * factor; fixed from then on (it doesn't follow the light). Undone if the
+     * camera doesn't confirm it. Elsewhere nothing changes. See
+     * `stats.camera.exposure`.
+     */
+    maxExposureMs?: number;
+  };
   /** restore a saved calibration (used only for the same frame size and orientation) */
   intrinsics?: CameraIntrinsics;
   /** long-side FOV prior, degrees, default 68 (§5.5) */
@@ -354,7 +394,12 @@ export interface TrackerStats {
   fps: number;
   workerMs: number;
   timingsMs: FrameTimingsMs;
-  camera: { label: string; lens: LensKind; devices: readonly string[] };
+  camera: {
+    label: string;
+    lens: LensKind;
+    devices: readonly string[];
+    exposure: CameraExposure;
+  };
   focal: { fx: number; source: FocalSource; stdDevPct: number | null };
   worker: 'module' | 'inline';
   frame: FrameInfo;
