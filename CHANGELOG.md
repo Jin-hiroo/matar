@@ -38,6 +38,18 @@ paper and the video lagged behind the camera.
   apart on a 60 Hz screen were dropped whenever the worker took longer than that,
   the likely cause of 26.8 analysed fps from a 29.9 fps camera on the second
   Android test. Still one frame in flight.
+- Pose consensus (`estimatePose`): a second, relaxed pass when the strict one
+  (every corner within `inlierPx`) leaves tags out. A tag agrees with a tag pair
+  there when its shift (the mean of its corner errors) is within `inlierPx` and
+  every corner within 3 × `inlierPx`; its set is used if larger and either the
+  strict set has under half the tags or the relaxed set's tags don't lie along
+  one line.
+  Motion blur longer than a tag cell stretches every tag along the motion while
+  it barely shifts, so blurred frames split into small consensus sets. At 16 px
+  of blur (9 px cells) 5 of 11–13 tags were kept and the camera was 26–58 mm and
+  3–8° off; now all are kept and it is within 3.1 mm and 0.4°. The relaxed test
+  alone kept a misprinted tag when the tags in view lay along one line (up to
+  765 mm off); the two passes are as safe there as the strict test.
 - `MatarThree` (`pose: 'raw'`): a raw pose more than 20 mm or 5° from the last
   raw poses extrapolated to its time is drawn like a frame without a pose and
   adds nothing to the velocity; the third in a row restarts the motion there (the

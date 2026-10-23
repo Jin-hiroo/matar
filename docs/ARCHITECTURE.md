@@ -319,11 +319,46 @@ equations solved by Cholesky. ≤ 10 iterations, stop when the step < 1e-6.
 A tag can be wrong for real reasons: a misprint, a tile page placed crooked, a
 neighbouring board sharing an ID, or a false decode. With ≥ 3 tags: RANSAC over
 **tag pairs**, exhaustively (≤ 780 pairs for 40 visible tags; ~45 for a typical
-10): each pair's 8 corners give a pixel homography; inliers are tags whose 4
-corners all reproject within `inlierPx` (default 4 px); the largest inlier set
-(ties: lower total error) goes to §5.2–5.3. With 1–2 tags: no consensus, use
-them as they are. After the fit, drop any tag whose RMS > max(3 px, 3 × median
-tag RMS) and refit once. Stateless per frame, so results are deterministic.
+10): each pair's 8 corners give a pixel homography, and each tag is judged by
+its 4 corner errors under it. Two tests, in two passes: **strict**, every
+corner within `inlierPx` (default 4 px); **relaxed**, the tag's shift (the
+mean of its 4 error vectors) within `inlierPx` and every corner within 3 ×
+`inlierPx`. Each pass keeps its largest inlier set (ties: lower total error).
+The strict set goes to §5.2–5.3 unless it leaves tags out, the relaxed set is
+larger, and either the strict set has fewer than half the tags or the relaxed
+set's tags don't lie along one line (their centres' RMS distance from their
+best-fit line ≥ half a tag side).
+With 1–2 tags: no consensus, use them as they are. After the fit, drop any tag
+whose RMS > max(3 px, 3 × median tag RMS) and refit once. Stateless per frame,
+so results are deterministic.
+
+Why relaxed: motion blur longer than a cell moves both edges across the motion
+outward by ≈ (blur − cell) / 2 px, so every tag looks stretched while it barely
+shifts. Rendered with 12–16 px of blur at 0–60° to the tag edges, corners were
+up to 5.2 px off and shifts ≤ 1.5 px. The strict test split such frames into
+small consensus sets: 5 of 11–13 tags kept, the camera 26–58 mm and 3–8° off.
+Now all are kept and the pose is within 3.1 mm and 0.4°
+(tests/synthetic/pipeline.test.ts). Wrong or displaced tags shift, and a tag
+turned in place (a misprint) moves its corners past 3 × `inlierPx` once
+turned far enough.
+
+Why not relaxed alone: along one line of tags, the homography of a pair that
+includes a misprinted tag is free to tilt about that line and can pass the
+others. Tags 17, 42 and 101 of a test board in view, 101 turned by 6°: the
+camera was 145 mm and 20° off; tilted, with tag 3 too and 101 turned by 20°:
+765 mm and 88°. The strict test keeps the good tags; a tag off the line
+exposes the tilt, hence the spread condition. On random views with 3–6 tags
+(half of them runs along one edge, turns up to 20°, tilts up to 45°), the two
+passes are exactly as good as strict alone with a misprinted tag, with or
+without the spread condition.
+
+What blur still costs. A homography from one pair of stretched tags is
+slightly sheared, so a few far tags drop out. Full board, stretch 3.7 px
+(tests/synthetic/pose.test.ts): 95 % of tags kept, camera ≤ 10.7 mm off,
+content 100 mm above the board ≤ 3.0 mm (relaxed alone: the same). Without
+the spread condition, keeping the strict set whenever it had half the tags or
+more, its tags were a biased subset: 87 %, 18.6 mm and 5.6 mm (strict alone
+21 mm for the content).
 
 `BoardPose.rmsErrPx` is over inlier corners; `usedTagIds` / `rejectedTagIds`
 report the split.
