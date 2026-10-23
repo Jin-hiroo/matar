@@ -101,8 +101,22 @@ paper and the video lagged behind the camera.
   extrapolated to it, for the lowest latency (demo: `?bg=live`).
 - Demo: after Start, **Mode** switches between `frame` and `live` without a reload,
   and **Copy report** copies the last 5 s of timings (fps, per-stage worker times,
-  how old the background and the pose are at render) for device-test notes.
-
+  how old the background and the pose are at render, spacing of the analysed frames,
+  runs of frames without a pose, time in the `grab` event, where the camera was:
+  height above the paper and tilt, how fast the board moved in the image and the
+  camera's reported exposure (so the motion blur in px), tags found and used, the
+  corner error by distance from the image centre, and the focal length that fits
+  tilted frames best, and the camera list) for device-test notes. `?fov=` sets the
+  long-side field of view the tracker starts from; `?exposure=` (ms) tries a manual
+  exposure time on the camera, the ISO scaled to keep the brightness or set with
+  `?iso=` (an experiment against motion blur; the library itself leaves exposure
+  alone). The demo saves the focal length the tracker measures in `localStorage`
+  under the camera's label and starts the next time from it on that camera
+  (`TrackerOptions.intrinsics`, `camera.deviceId` looked up by label), so the
+  calibration isn't redone on every load; `?fresh` forgets it. The report shows the
+  URL options, where the focal length came from, (`calib`) how many frames pass
+  each keyframe rule of the self-calibration (in the window and since Start), the
+  time to the first estimate, and the `err` in mm on the paper.
 - Demo hosting on Vercel: `vercel.json` (build `pnpm demo:build`, serve `demo/dist`,
   immutable hashed assets) and `.vercelignore` (upload only what the build reads).
   `MATAR_DEMO_URL=<url>` points the demo e2e at a deployed copy.
