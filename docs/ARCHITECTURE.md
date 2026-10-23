@@ -207,8 +207,16 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
    max **over its four 2 × 2 block means** (halves the noise in max − min, so
    flat paper with sensor noise stays "unknown" instead of turning into large
    black clusters; real edges keep their extrema), extrema dilated over the
-   3 × 3 tile neighbourhood, threshold (min + max)/2, every pixel compared at
-   full resolution. Pixels whose local max − min < `minContrast` (default 15)
+   3 × 3 tile neighbourhood, threshold halfway between min and max **in
+   linear light** (a 256 × 256 table built from the `edgeGamma` LUT, one
+   lookup per tile; with ink 30 and paper 210 DN it is 154 DN, not 120), but
+   never within 24 DN of max unless the encoded midpoint already is (dark,
+   low-contrast tiles keep the encoded midpoint, so noise doesn't break the
+   white ring). Every pixel is compared at full resolution. AprilTag's encoded
+   midpoint (min + max)/2 sits at ≈ 20 % of the ink-to-paper range in linear
+   light, so under motion blur longer than about a cell the black border faded
+   past it before the white gaps did, and all tags of a frame were lost at once
+   (second Android device test; tests/synthetic/detect-motion.test.ts). Pixels whose local max − min < `minContrast` (default 15)
    are "unknown" (neither black nor white); this holds up to ≈ 4 DN of noise. Output: `Uint8Array` labels
    (0 black, 255 white, 127 unknown).
 3. **Candidates**: border following (Suzuki–Abe 1985) on black regions,

@@ -19,6 +19,14 @@ paper and the video lagged behind the camera.
   no longer jumps for a frame when detection drops out while turning or moving the phone
   (second Android test). With `background: 'live'` those frames no longer feed the
   hold pose into the velocity. A loss or a tracker restart clears the velocity.
+- The detector's adaptive threshold is halfway between the local extrema in linear
+  light (`edgeGamma`), not in encoded gray values. Under motion blur longer than about
+  one tag cell, the blurred black borders used to fall above the threshold and whole
+  frames lost every tag (moving the phone on the second Android test). With 9 px
+  cells and 12–14 px of blur, 31 of 32 tags are found (was 16; in a full 720 × 1280
+  demo-board frame at 12 px, 15 of 16, was 0). Same speed. In dark, low-contrast tiles
+  (within 24 DN of white) it keeps the encoded midpoint, so noisy dim frames do as
+  before.
 - The detector's `'auto'` decimation switches to ×2 from 5 px cells (was 8 px);
   ×2 still finds 99.6 % of tags at 3–4 px/cell.
 - `MatarThree` (`pose: 'raw'`): a raw pose more than 20 mm or 5° from the last

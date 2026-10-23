@@ -30,6 +30,7 @@ import { TagReader } from './sample.js';
 import {
   adaptiveThreshold,
   decimate2x2,
+  linearMidpointTable,
   thresholdScratchSize,
   type ThresholdScratch,
 } from './threshold.js';
@@ -85,6 +86,8 @@ export class TagDetector implements Detector {
 
   private readonly matcher: CodeMatcher;
   private readonly refiner: EdgeRefiner;
+  /** linear-light threshold midpoints (`linearMidpointTable`) */
+  private readonly midTable: Uint8Array;
   private readonly reader: TagReader;
   private readonly quadOpts: QuadFitOptions;
   private width = -1;
@@ -137,6 +140,7 @@ export class TagDetector implements Detector {
     this.quadOpts = { minPerimeterPx: MIN_PERIMETER_PX, minSidePx: MIN_SIDE_PX, decimate: 1 };
     const lut = linearizationLut(gamma);
     this.refiner = new EdgeRefiner(lut);
+    this.midTable = linearMidpointTable(lut);
     this.reader = new TagReader(this.def, lut);
     this.matcher = new CodeMatcher(this.def);
     this.matcher.setIds(o.ids);
@@ -171,7 +175,16 @@ export class TagDetector implements Detector {
       const sw = follower.width;
       const sh = follower.height;
       // tile extrema over 2 × 2 block means: sensor noise on flat paper stays unknown
-      adaptiveThreshold(search, sw, sh, this.minContrast, this.labels, this.scratch, true);
+      adaptiveThreshold(
+        search,
+        sw,
+        sh,
+        this.minContrast,
+        this.labels,
+        this.scratch,
+        true,
+        this.midTable,
+      );
       this.quadOpts.decimate = d;
       this.gray = data;
       // an 8-connected border has at least perimeter / √2 points
