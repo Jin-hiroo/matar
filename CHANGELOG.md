@@ -14,8 +14,20 @@ paper and the video lagged behind the camera.
 - `MatarThree` drives the camera with each frame's own pose by default (`pose: 'raw'`);
   the smoothed pose only bridges frames without one. Content no longer trails the
   paper by the filter's lag. `pose: 'smoothed'` restores the old behaviour.
+- `MatarThree` (`pose: 'raw'`): a frame without a pose gets the last two raw poses
+  extrapolated to its timestamp instead of the smoothed hold pose, which lags. Content
+  no longer jumps for a frame when detection drops out while turning or moving the phone
+  (second Android test). With `background: 'live'` those frames no longer feed the
+  hold pose into the velocity. A loss or a tracker restart clears the velocity.
 - The detector's `'auto'` decimation switches to ×2 from 5 px cells (was 8 px);
   ×2 still finds 99.6 % of tags at 3–4 px/cell.
+- `MatarThree` (`pose: 'raw'`): a raw pose more than 20 mm or 5° from the last
+  raw poses extrapolated to its time is drawn like a frame without a pose and
+  adds nothing to the velocity; the third in a row restarts the motion there (the
+  filter's jump gate, which raw mode bypassed). A frame where blur left 1–3
+  badly placed tags no longer throws the content off for a frame. A bad first or
+  second pose doesn't set the velocity that judges the next ones, and a new
+  orientation or a tracker stop, pause or restart starts a new motion.
 - Demo HUD: per-stage worker timings and the delay since the frame; refreshed 5×
   a second instead of every frame.
 

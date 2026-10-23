@@ -549,8 +549,10 @@ coordinates sits on the paper. `ar.update()`:
 1. takes the newest pose event whose frame is in the texture ring;
 2. sets `scene.background` to that frame's texture with the cover crop (§7.3);
 3. copies the frame's own `pose.boardFromCamera` (option `pose: 'raw'`, the
-   default; the smoothed pose only for frames without one, i.e. the loss hold)
-   or the smoothed pose (`pose: 'smoothed'`), translation × `mmToM`, into
+   default; for a frame without one that is still tracking, the last two raw
+   poses extrapolated to its timestamp as in `live` below, or the smoothed
+   pose before any raw one) or the smoothed pose (`pose: 'smoothed'`),
+   translation × `mmToM`, into
    `camera.matrix` and `decompose`s it into `position`/`quaternion`/`scale`
    (three recomputes `matrixWorld` from these on every render, so setting
    `matrixWorld` directly would be overwritten). `matrixAutoUpdate` stays
@@ -589,7 +591,33 @@ overlay always match. `background: 'none'` leaves the background to the app.
 on screen, so it needs no smoothing to stay on the paper; the One Euro filter's
 lag at slow and moderate motion (30–100 ms) made content trail the paper on the
 first Android device test. Jitter of the raw pose is small for content near the
-paper (RESEARCH.md §2.7).
+paper (RESEARCH.md §2.7). Frames without a pose (23–31 % while moving on that
+phone) don't use the loss hold either. The hold is the filter state of an
+older frame and lags behind it, so content jumped back for a frame during
+fast moves, which looked like shaking. For example, turning at 30°/s, a hold
+60 ms behind the shown frame is ≈ 2° off: ≈ 30 px at f ≈ 950 px. These frames
+get the raw poses extrapolated to their own timestamp instead, and `live`
+takes only raw poses as velocity samples for the same reason.
+
+**Spikes.** Without the filter, nothing stopped a bad raw pose from reaching
+the screen. Heavy motion blur can leave 1–3 badly placed tags, and one blurred
+tag can put the camera tens of degrees off. So a raw pose more than 20 mm or
+5° from the last two raw poses extrapolated to its timestamp is drawn like a
+frame without a pose (extrapolated) and isn't a velocity
+sample. On the third such pose in a row, the motion restarts there. These are
+the filter's jump-gate numbers (§5.6), measured against the predicted pose
+rather than the lagging filtered one. Until a pose has matched the
+prediction, the velocity can come from a bad first or second pose, which had
+nothing to be compared with: a pose near the last one is taken, and one near
+only the pose before drops the last from the velocity. Only where the
+prediction reaches: with two poses (a velocity) and at most 100 ms and 3 pose
+intervals ahead, the extrapolation limits, so the first pose after a dropout
+during fast motion is taken. Poses more than 250 ms apart, a loss, a new
+orientation (other intrinsics size) and a tracker state change (stop, pause,
+restart) start a new motion; pose events queued before then are shown with
+their own pose but add nothing to the velocity. `setBoard()`
+isn't visible to `MatarThree`: if the new board puts the camera elsewhere, its
+first two poses are taken for spikes and the third restarts the motion.
 
 **`background: 'live'`** trades exact registration for latency: a
 `VideoTexture` of the tracker's `<video>` shows the newest camera frame (no
