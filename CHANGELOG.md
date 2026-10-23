@@ -103,6 +103,10 @@ paper and the video lagged behind the camera.
   and **Copy report** copies the last 5 s of timings (fps, per-stage worker times,
   how old the background and the pose are at render) for device-test notes.
 
+- Demo hosting on Vercel: `vercel.json` (build `pnpm demo:build`, serve `demo/dist`,
+  immutable hashed assets) and `.vercelignore` (upload only what the build reads).
+  `MATAR_DEMO_URL=<url>` points the demo e2e at a deployed copy.
+
 ## [0.1.0] - 2026-10-20
 
 First version: the whole pipeline works end to end in desktop Chromium with a synthetic
