@@ -230,7 +230,7 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       Measured: every late frame has a pose; worst 0.47–0.54 mm / 0.07°; f
       converges to 474.7 px (truth 474.4).
 - [x] **I3 Size + bundlers**: `.size-limit.json`; `pnpm size` passes (core +
-      worker ≤ 35 KB, three ≤ 8 KB min+gzip). Smoke apps installing the
+      worker ≤ 35 KB then, 50 KB since 2026-10-23; three ≤ 8 KB min+gzip). Smoke apps installing the
       `pnpm pack` tarball build with Vite, webpack 5 and Next.js (Turbopack):
       the worker chunk is emitted, and in Chromium with the fake camera
       `ready` arrives and pose events follow; `import 'matar'` in Node (SSR)

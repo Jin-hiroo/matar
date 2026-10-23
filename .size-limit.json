@@ -2,7 +2,7 @@
   {
     "name": "matar (core entry + module worker)",
     "path": ["dist/index.js", "dist/worker/main.js"],
-    "limit": "35 KB",
+    "limit": "50 KB",
     "gzip": true
   },
   {

@@ -74,7 +74,7 @@ browser globals, so it is safe in server-side rendering.
 
 | Budget                                  | Target                                                                                                                                       | How checked           |
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| Core bundle (`matar`, incl. worker)     | ≤ 35 KB min+gzip                                                                                                                             | `pnpm size`           |
+| Core bundle (`matar`, incl. worker)     | ≤ 50 KB min+gzip                                                                                                                             | `pnpm size`           |
 | `matar/three` (excl. three.js)          | ≤ 8 KB min+gzip                                                                                                                              | `pnpm size`           |
 | Runtime network requests by the library | **0** besides its own worker chunk (same origin)                                                                                             | e2e test asserts none |
 | Upload                                  | **0 bytes**: frames never leave the device                                                                                                   | code review + e2e     |

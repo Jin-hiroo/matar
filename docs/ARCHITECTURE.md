@@ -918,7 +918,7 @@ All randomness is seeded; tests print the seed on failure.
   shakeable, `sideEffects: false`). Entry points: `matar` (`src/index.ts`),
   `matar/three` (`src/three/index.ts`), `matar/testing` (`src/synth/index.ts`),
   and the worker `dist/worker/main.js`.
-- `pnpm size` (size-limit, `.size-limit.json`) checks: core entry + worker ≤ 35 KB,
+- `pnpm size` (size-limit, `.size-limit.json`) checks: core entry + worker ≤ 50 KB,
   `matar/three` ≤ 8 KB (three.js excluded), min+gzip.
 - The tag code table ships as a compact hex string in source, no binary asset
   fetches (core idea 1).
