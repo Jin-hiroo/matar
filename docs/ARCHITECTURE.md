@@ -198,11 +198,14 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
 1. **Decimation** (optional): quad search on a 2 × 2 box-averaged image when
    `decimate: 2`. Decimated → full coordinates: `full = (p + 0.5)·d − 0.5`.
    Steps 4–5 always run on the full-resolution image. `'auto'` (the default):
-   ×1 on every 8th frame, whenever the previous frame detected nothing, after
-   `setIds()` and for frames too small to halve; otherwise ×2 if the previous
-   frame's smallest detected cell (shortest side / 8) was ≥ 8 px at full
-   resolution, else ×1. (×2 still finds 99.6 % of tags at 3–4 px/cell, so the
-   8 px switch-over is conservative and could be lowered after device tests.)
+   ×1 whenever the previous frame detected nothing, after `setIds()`, for
+   frames too small to halve, and on every 8th frame unless the previous one
+   found every ID looked for (then no small tag is left to find, and the ×1
+   frame was just the slowest one in eight: likely the 90th-percentile worker
+   time on the second Android test, 27 ms against a 20 ms median); otherwise
+   ×2 if the previous frame's smallest detected cell (shortest side / 8) was
+   ≥ 5 px at full resolution, else ×1. (×2 still finds 99.6 % of tags at
+   3–4 px/cell.)
 2. **Adaptive threshold** (AprilTag 3): 4 × 4 px tiles, each tile's min and
    max **over its four 2 × 2 block means** (halves the noise in max − min, so
    flat paper with sensor noise stays "unknown" instead of turning into large
@@ -263,8 +266,8 @@ Target on an M-series Mac: median ≤ 4 ms for 1280 × 720 with ~15 tags (phones
 are typically 2–3× slower; the device budget is ≤ 12 ms for the whole worker
 step). Measured (D5, M2, Node 24, `pnpm bench --silent=false`): 50 cm clean
 3.4 ms at ×1 / 2.0 ms at ×2; with clutter + 2 DN noise 3.8 / 2.4 ms; a 30 cm
-close-up 4.7 / 3.3 ms (auto: 3.3 ms, p99 4.7 ms from the ×1 call every 8th
-frame). Hot loops bind imported constants locally (vitest wraps imported
+close-up 4.7 / 3.3 ms (auto: 3.2 ms, p99 3.5 ms; it was 4.9 ms while every
+8th frame ran ×1 even with all 15 tags found). Hot loops bind imported constants locally (vitest wraps imported
 bindings in getters, which made the bench 7× slower). No published phone timings exist for JS tag detectors (RESEARCH.md
 §2.3): benchmark early (`tests/bench`). Later optimisations, only if device
 numbers demand them: ROI search from a constant-velocity prediction with a

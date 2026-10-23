@@ -1,7 +1,8 @@
 /**
  * D5 (TASKS.md): the `decimate: 'auto'` policy (ARCHITECTURE.md §4.1 step 1):
- * ×1 on every 8th call and whenever the previous call found nothing;
- * otherwise ×2 if the previous call's smallest cell was ≥ 5 px, else ×1.
+ * ×1 whenever the previous call found nothing, and on every 8th call unless
+ * it found every ID looked for; otherwise ×2 if the previous call's smallest
+ * cell was ≥ 5 px, else ×1.
  */
 import { describe, expect, it } from 'vitest';
 import { TagDetector } from '../../src/detect/detector.js';
@@ -82,6 +83,24 @@ describe("decimate 'auto' (D5)", () => {
       used.push(det.lastDecimate);
     }
     expect(used).toEqual([1, 2, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2]);
+  });
+
+  it('skips the ×1 call every 8th once every ID looked for was found', () => {
+    const det = new TagDetector({ width: 640, height: 480, family: 'tag36h11', ids: [1, 2, 3] });
+    const used: number[] = [];
+    for (let i = 0; i < 20; i++) {
+      expect(det.detect(bigOnly).length, `call ${i}`).toBe(3);
+      used.push(det.lastDecimate);
+    }
+    expect(used).toEqual([1, ...Array<number>(19).fill(2)]);
+    // one ID missing (a tag out of view): the periodic ×1 call is back
+    det.setIds([1, 2, 3, 4]);
+    const used4: number[] = [];
+    for (let i = 0; i < 16; i++) {
+      det.detect(bigOnly);
+      used4.push(det.lastDecimate);
+    }
+    expect(used4.filter((d) => d === 1).length).toBe(3); // after setIds, then every 8th
   });
 
   it('stays ×1 when nothing is found or the smallest cell is < 5 px', () => {

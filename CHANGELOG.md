@@ -29,6 +29,9 @@ paper and the video lagged behind the camera.
   before.
 - The detector's `'auto'` decimation switches to ×2 from 5 px cells (was 8 px);
   ×2 still finds 99.6 % of tags at 3–4 px/cell.
+- `'auto'` decimation skips its full-resolution search every 8th frame while the
+  previous frame found every ID looked for: there is no small tag left to find, and
+  that frame was the slowest in eight (benchmark close-up p99 4.9 → 3.5 ms).
 - `MatarThree` (`pose: 'raw'`): a raw pose more than 20 mm or 5° from the last
   raw poses extrapolated to its time is drawn like a frame without a pose and
   adds nothing to the velocity; the third in a row restarts the motion there (the
