@@ -7,6 +7,9 @@
  * - Frame loop: `requestVideoFrameCallback`; a frame is grabbed only when none
  *   is in flight (late frames are dropped, never queued). For each grab the
  *   `grab` event fires synchronously, then the frame is transferred (§6.2, §7.2).
+ *   A frame that came while one was in flight is grabbed when the result comes
+ *   back if it is still the video's current frame (`VideoFrame.timestamp` =
+ *   its callback's `mediaTime`; `videoframe` path only), else dropped.
  * - Each `result` becomes a `pose` event: the raw pose, the smoothed one
  *   (`createPoseFilter`, with the loss hold, §5.6), detections, intrinsics and
  *   stats.
@@ -156,10 +159,16 @@ class TrackerImpl extends EventTarget implements Tracker {
   private readonly filter: PoseFilter | null;
   private frameId = 0;
   private inFlight: number | null = null;
+  /** results of frames up to this ID were computed for the board before `setBoard` */
+  private staleUpTo = 0;
+  /** bumped by `start` and `stop`: a `start` whose generation is gone stops at its next await */
+  private startGen = 0;
   private loopActive = false;
   private rvfcHandle: number | null = null;
   private rafHandle: number | null = null;
   private lastVideoTime = -1;
+  /** the newest frame that came while one was in flight, for a late grab */
+  private missed: { timestampMs: number; mediaTime: number } | null = null;
   private hiddenNow = false;
   private muted = false;
   private reacquiring: Promise<void> | null = null;
@@ -203,6 +212,7 @@ class TrackerImpl extends EventTarget implements Tracker {
       return;
     }
     this.setState('starting');
+    const gen = ++this.startGen;
     if (this.ownsVideo) this.env.attachVideo(this.video);
     try {
       const md = this.env.mediaDevices();
@@ -211,16 +221,20 @@ class TrackerImpl extends EventTarget implements Tracker {
         hasGetUserMedia: typeof md?.getUserMedia === 'function',
       });
       if (envError || !md) throw new MatarError(envError ?? 'no-camera-api');
-      this.camera = await openCamera(md, this.env.platform(), this.opts.camera ?? {});
-      if (this.stopped()) return this.releaseCamera();
+      const camera = await openCamera(md, this.env.platform(), this.opts.camera ?? {});
+      if (!this.live(gen)) return stopStream(camera.stream);
+      this.camera = camera;
       await this.attachStream();
-      await this.startPort();
-      if (this.stopped()) return;
+      if (!this.live(gen)) return;
+      await this.startPort(gen);
+      if (!this.live(gen)) return;
       this.hiddenNow = this.env.hidden();
       this.cleanups.push(this.env.onVisibilityChange(() => this.onVisibility()));
       this.setState(this.hiddenNow ? 'paused' : 'running');
       this.startLoop();
     } catch (e) {
+      // stopped meanwhile (e.g. `play()` aborted by stop() clearing srcObject): not an error
+      if (!this.live(gen)) return;
       const err = toCameraError(e);
       this.releaseCamera();
       this.emitError(err.code, err.message, e);
@@ -229,12 +243,21 @@ class TrackerImpl extends EventTarget implements Tracker {
     }
   }
 
+  /** true while the `start` of generation `gen` is the current one and not stopped */
+  private live(gen: number): boolean {
+    return gen === this.startGen && !this.stopped();
+  }
+
   stop(): void {
     if (this._state === 'stopped' || this._state === 'idle') {
       this.setState('stopped');
       return;
     }
-    this.setState('stopped');
+    // tear down first, then tell listeners: one that calls start() from the
+    // 'stopped' event gets a clean tracker and a fresh generation
+    const previous = this._state;
+    this._state = 'stopped';
+    this.startGen++;
     this.stopLoop();
     this.releaseCamera();
     for (const c of this.cleanups.splice(0)) c();
@@ -246,11 +269,13 @@ class TrackerImpl extends EventTarget implements Tracker {
     this.inFlight = null;
     this.filter?.reset();
     if (this.ownsVideo) this.env.removeVideo(this.video);
+    this.emitState('stopped', previous);
   }
 
   setBoard(board: Board): void {
     this.board = board;
     this.filter?.reset();
+    this.staleUpTo = this.frameId; // a frame in flight is solved for the old board
     this.port?.postMessage({ type: 'board', board });
   }
 
@@ -294,15 +319,20 @@ class TrackerImpl extends EventTarget implements Tracker {
     const prev = this.camera;
     const md = this.env.mediaDevices();
     if (!prev || !md) return Promise.resolve();
+    const gen = this.startGen;
     this.reacquiring = (async () => {
       try {
         stopStream(prev.stream);
-        this.camera = await reopenCamera(md, prev);
-        if (this.stopped()) return this.releaseCamera();
+        const camera = await reopenCamera(md, prev);
+        // stopped (and maybe restarted with its own camera) meanwhile
+        if (!this.live(gen)) return stopStream(camera.stream);
+        this.camera = camera;
         await this.attachStream();
+        if (!this.live(gen)) return;
         this.filter?.reset();
         this.updatePause();
       } catch (e) {
+        if (!this.live(gen)) return;
         const err = toCameraError(e);
         this.emitError(err.code, err.message, e);
         this.setState('error');
@@ -331,7 +361,7 @@ class TrackerImpl extends EventTarget implements Tracker {
   // ---------------------------------------------------------------------------
   // worker
 
-  private async startPort(): Promise<void> {
+  private async startPort(gen: number): Promise<void> {
     if (this.port) return;
     if (this.opts.worker === false) {
       await this.connect(this.env.inlinePort(), true);
@@ -344,7 +374,9 @@ class TrackerImpl extends EventTarget implements Tracker {
     } catch (e) {
       if (port && this.port === port) this.port = null;
       if (port && !this.opts.worker) port.terminate();
+      if (!this.live(gen)) return;
       this.emitError('worker-failed', 'the tracking worker failed to start; running inline', e);
+      if (!this.live(gen)) return; // an error listener stopped the tracker
       await this.connect(this.env.inlinePort(), true);
     }
   }
@@ -377,6 +409,7 @@ class TrackerImpl extends EventTarget implements Tracker {
         this.inFlight = null;
         if (this.ownsPort) port.terminate();
         this.emitError('worker-failed', 'the tracking worker stopped; running inline', e);
+        if (this.stopped()) return; // an error listener stopped the tracker
         void this.connect(this.env.inlinePort(), true).catch((err: unknown) =>
           this.emitError('worker-failed', 'the inline processor failed', err),
         );
@@ -397,6 +430,7 @@ class TrackerImpl extends EventTarget implements Tracker {
         clearTimeout(timer);
         port.removeEventListener('message', onMessage);
         port.removeEventListener('error', onError);
+        if (!ready) resolve(); // stopped while waiting: `start` sees it and returns
       });
       port.postMessage({
         type: 'init',
@@ -426,7 +460,8 @@ class TrackerImpl extends EventTarget implements Tracker {
       case 'result':
         if (msg.frameId === this.inFlight) this.inFlight = null;
         if (msg.returned) this.source.recycle(msg.returned);
-        this.onResult(msg);
+        if (msg.frameId > this.staleUpTo) this.onResult(msg);
+        this.grabMissed();
         return;
       case 'intrinsics':
         this._intrinsics = msg.intrinsics;
@@ -517,6 +552,7 @@ class TrackerImpl extends EventTarget implements Tracker {
       cancelAnimationFrame(this.rafHandle);
     }
     this.rvfcHandle = this.rafHandle = null;
+    this.missed = null;
   }
 
   private scheduleNext(): void {
@@ -525,7 +561,7 @@ class TrackerImpl extends EventTarget implements Tracker {
     if (typeof v.requestVideoFrameCallback === 'function') {
       this.rvfcHandle = v.requestVideoFrameCallback((now, meta) => {
         this.rvfcHandle = null;
-        this.onVideoFrame(meta.expectedDisplayTime || now);
+        this.onVideoFrame(meta.expectedDisplayTime || now, meta.mediaTime);
         this.scheduleNext();
       });
     } else {
@@ -541,10 +577,52 @@ class TrackerImpl extends EventTarget implements Tracker {
     }
   }
 
-  private onVideoFrame(timestampMs: number): void {
-    if (this._state !== 'running' || this.inFlight !== null || !this.port) return;
-    const grabbed = this.source.grab(this.video);
+  private onVideoFrame(timestampMs: number, mediaTime?: number): void {
+    if (this._state !== 'running' || !this.port) return;
+    if (this.inFlight !== null) {
+      this.missed =
+        mediaTime !== undefined && this.source.path === 'videoframe'
+          ? { timestampMs, mediaTime }
+          : null;
+      return;
+    }
+    this.missed = null;
+    this.sendFrame(timestampMs, null);
+  }
+
+  /**
+   * After a result: grabs the frame that came while the worker was busy, if
+   * the video still shows it. Frames 16.7 ms apart (camera frames presented on
+   * a 60 Hz display) otherwise lose every frame that follows a short interval
+   * whenever the worker takes longer than that.
+   */
+  private grabMissed(): void {
+    const m = this.missed;
+    this.missed = null;
+    if (!m || this._state !== 'running' || this.inFlight !== null || !this.port) return;
+    this.sendFrame(m.timestampMs, m.mediaTime);
+  }
+
+  /** `expectMediaTime` (s): send only if the grabbed frame is that one. */
+  private sendFrame(timestampMs: number, expectMediaTime: number | null): void {
+    const port = this.port;
+    if (!port) return;
+    const source = this.source;
+    const grabbed = source.grab(this.video);
     if (!grabbed) return;
+    const drop = () => {
+      grabbed.frame?.close();
+      if (grabbed.gray) source.recycle(grabbed.gray.data);
+    };
+    if (
+      expectMediaTime !== null &&
+      (!grabbed.frame || Math.abs(grabbed.frame.timestamp - expectMediaTime * 1e6) > 500)
+    ) {
+      // a newer frame is current (its callback is on the way), or this
+      // browser's timestamps don't match: drop it as before
+      drop();
+      return;
+    }
     const frameId = ++this.frameId;
     this.dispatchEvent(
       Object.assign(new Event('grab'), {
@@ -553,6 +631,11 @@ class TrackerImpl extends EventTarget implements Tracker {
         frame: grabbed.frame,
       }) as GrabEvent,
     );
+    // a `grab` listener may have stopped or paused the tracker
+    if (this.port !== port || this._state !== 'running') {
+      drop();
+      return;
+    }
     const base = {
       type: 'frame' as const,
       frameId,
@@ -573,7 +656,7 @@ class TrackerImpl extends EventTarget implements Tracker {
       return;
     }
     this.inFlight = frameId;
-    this.port.postMessage(msg, this.port.kind === 'module' ? transfer : []);
+    port.postMessage(msg, port.kind === 'module' ? transfer : []);
   }
 
   // ---------------------------------------------------------------------------
@@ -587,6 +670,10 @@ class TrackerImpl extends EventTarget implements Tracker {
     const previous = this._state;
     if (previous === state) return;
     this._state = state;
+    this.emitState(state, previous);
+  }
+
+  private emitState(state: TrackerState, previous: TrackerState): void {
     this.dispatchEvent(Object.assign(new Event('state'), { state, previous }) as StateEvent);
   }
 

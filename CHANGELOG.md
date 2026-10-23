@@ -32,6 +32,12 @@ paper and the video lagged behind the camera.
 - `'auto'` decimation skips its full-resolution search every 8th frame while the
   previous frame found every ID looked for: there is no small tag left to find, and
   that frame was the slowest in eight (benchmark close-up p99 4.9 → 3.5 ms).
+- The tracker grabs a frame that came while the worker was busy once the result is
+  back, if the video still shows that frame (`VideoFrame.timestamp` matches the
+  frame callback's `mediaTime`; `videoframe` path). Camera frames presented 16.7 ms
+  apart on a 60 Hz screen were dropped whenever the worker took longer than that,
+  the likely cause of 26.8 analysed fps from a 29.9 fps camera on the second
+  Android test. Still one frame in flight.
 - `MatarThree` (`pose: 'raw'`): a raw pose more than 20 mm or 5° from the last
   raw poses extrapolated to its time is drawn like a frame without a pose and
   adds nothing to the velocity; the third in a row restarts the motion there (the
@@ -42,6 +48,20 @@ paper and the video lagged behind the camera.
 - Demo HUD: per-stage worker timings and the delay since the frame; refreshed 5×
   a second instead of every frame.
 
+### Fixed
+
+- `tracker.stop()` during `start()`: `start()` no longer hangs when stopped while
+  waiting for the worker's `ready`, and no longer starts a worker or reports a camera
+  error when stopped while `video.play()` was pending.
+- `tracker.setBoard()` with a frame in flight: that frame's result, solved for the
+  old board, is no longer published as a pose.
+- `tracker.stop()` from a `grab` listener no longer throws; the grabbed frame is
+  closed instead of sent.
+- `tracker.start()` from a `'stopped'` state listener restarts cleanly (the event now
+  fires after the teardown), and `stop()` from a `worker-failed` listener no longer
+  starts the inline fallback anyway.
+- A camera reacquire (a track that ended in the background) still pending across
+  `stop()` and `start()` no longer replaces the new camera and leaks its stream.
 ### Added
 
 - `MatarThree` `background: 'live'`: the newest camera frame with the pose

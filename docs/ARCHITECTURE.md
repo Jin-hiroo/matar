@@ -24,7 +24,9 @@ getUserMedia (rear main lens)
 ```
 
 - One frame in flight: a frame is grabbed only when the worker is idle. Late
-  frames are dropped, never queued (lowest latency, bounded memory).
+  frames are dropped, never queued (lowest latency, bounded memory). One
+  exception: when a result comes back and the newest frame that came during the
+  wait is still the video's current frame, it is grabbed then (§6.2).
 - The overlay is drawn on the frame that was analysed (§7.2), so content can't
   "swim" against the video by the worker latency.
 - Everything per frame is preallocated: typed-array buffers are transferred
@@ -445,7 +447,7 @@ tests collect real labels (DEVICE-TESTS.md).
 **v0.1 path (iOS 17+, Android Chrome; one code path):** in the main-thread
 `requestVideoFrameCallback`, when the worker is idle:
 
-1. `frame = new VideoFrame(video, { timestamp })`.
+1. `frame = new VideoFrame(video)`.
 2. Dispatch the **`grab` event** synchronously (`GrabEvent { frameId, video,
 frame }`): `MatarThree` uploads `frame` into its texture ring here (§7.2).
 3. `postMessage({ type: 'frame', …, displayWidth: video.videoWidth,
@@ -483,6 +485,19 @@ match worker frames to displayed frames (timestamps), so they aren't in v0.1.
 Frame timing: `rVFC` metadata `mediaTime`/`presentedFrames` identify frames;
 `timestampMs` is `performance.now()`-based (`metadata.expectedDisplayTime` or
 `now`), used for filter dt.
+
+**Late grab.** Camera frames are presented on display refreshes, so at 30 fps on
+a 60 Hz screen some arrive 16.7 ms after the previous one. A worker that takes
+about 20 ms (Android, 720 × 1280) missed each of those, the likely cause of the
+gap on the second Android test (29.9 fps from the camera, 26.8 analysed; the
+p90 interval between analysed frames was 50 ms). The tracker remembers the newest
+frame whose callback came while one was in flight (its `expectedDisplayTime` and
+`mediaTime`). When the result arrives, it grabs `new VideoFrame(video)` and sends
+it, with that timestamp, only if `frame.timestamp` is that `mediaTime`
+(± 0.5 ms). Otherwise a newer frame is already current and its own callback is
+coming, so the grabbed frame is closed unsent. This is the `videoframe` path
+only, and a browser whose two timestamps differ just drops frames as before.
+Still one frame in flight, never queued.
 
 ### 6.3 Worker protocol
 
