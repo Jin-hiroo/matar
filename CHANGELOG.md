@@ -50,6 +50,12 @@ paper and the video lagged behind the camera.
 
 ### Fixed
 
+- Android: the lens rule (use the lowest-numbered back camera) works with current
+  Chrome's labels, `camera N, facing back`. It only matched the older `camera2 N, …`,
+  so on Chrome 155 the tracker kept whichever back camera `facingMode` opened (on the
+  test phone `camera 2`, which the demo's `fit` line puts at an 83–87° long side,
+  against the 68° prior) and reported `lens: 'unknown'`. Infrared back cameras
+  (`…, infrared`) are skipped.
 - `tracker.stop()` during `start()`: `start()` no longer hangs when stopped while
   waiting for the worker's `ready`, and no longer starts a worker or reports a camera
   error when stopped while `video.play()` was pending.

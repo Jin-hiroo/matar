@@ -42,10 +42,12 @@ the Safari 27 beta notes list no getUserMedia features
 
 **Android Chrome.**
 
-- Each Camera2 camera is listed separately, labelled `"camera2 N, facing back"`
-  (not localised; code-reading, medium:
+- Each Camera2 camera is listed separately, labelled `"camera N, facing back"`
+  (N: the position in `getCameraIdList()`; `, infrared` appended for NIR
+  sensors; not localised; code-reading, high:
   [VideoCaptureCamera2.java](https://chromium.googlesource.com/chromium/src/+/main/media/capture/video/android/java/src/org/chromium/media/VideoCaptureCamera2.java)
-  `getName`). The lowest-numbered back camera is usually the main one; some
+  `getName`, read 2026-10-23; Chrome 155 on Android reports `camera 2, facing
+back`, DEVICE-TESTS.md). Older Chrome wrote `"camera2 N, facing back"`. The lowest-numbered back camera is usually the main one; some
   phones expose one logical multi-camera that may switch lenses (**UNVERIFIED**
   per OEM).
 - `facingMode` can't pick a specific lens
@@ -102,6 +104,11 @@ the Safari 27 beta notes list no getUserMedia features
   ≈ 70–73° (**UNVERIFIED**).
 - Android (arithmetic from vendor diagonal FOV, medium-low): Pixel 9 wide
   82° diag → ≈ 69.6° horizontal; Galaxy S25 85° / 24 mm → ≈ 72.5°.
+- Android, measured (one phone, model hidden by the reduced UA; Chrome 155,
+  720×1280; DEVICE-TESTS.md 2026-10-23): `camera 0` self-calibrated to
+  1132–1134 px, a **59° long side**; `camera 2` (what `facingMode` opened)
+  fits ≈ 699 px, 85°. The main camera at 59° fits an EIS crop of ≈ 16 %
+  from ≈ 68° (**UNVERIFIED**: the phone's uncropped FOV is unknown).
 - **Stabilisation**: Chromium enables video stabilisation (EIS) on Android
   whenever available (code-reading, high), so the effective FOV is narrower by
   an **UNVERIFIED** crop. WebKit sets no stabilisation mode (AVFoundation default

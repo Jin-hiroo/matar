@@ -146,6 +146,20 @@ describe('chooseLens', () => {
     const keep = chooseLens('android', inputs, { deviceId: 'b0', label: 'camera2 0, facing back' });
     expect(keep).toMatchObject({ action: 'keep', lens: 'pinned', deviceId: 'b0', zoom: null });
   });
+  it('Android: current Chrome labels (camera N), and infrared back cameras do not count', () => {
+    const inputs = [
+      { deviceId: 'ir', label: 'camera 0, facing back, infrared' },
+      { deviceId: 'f', label: 'camera 1, facing front' },
+      { deviceId: 'b2', label: 'camera 2, facing back' },
+      { deviceId: 'b3', label: 'camera 3, facing back' },
+    ];
+    expect(
+      chooseLens('android', inputs, { deviceId: 'b3', label: 'camera 3, facing back' }),
+    ).toEqual({ action: 'reopen', lens: 'pinned', deviceId: 'b2', label: 'camera 2, facing back' });
+    expect(
+      chooseLens('android', inputs, { deviceId: 'b2', label: 'camera 2, facing back' }),
+    ).toMatchObject({ action: 'keep', lens: 'pinned', deviceId: 'b2' });
+  });
   it('Android: two-digit N compares numerically', () => {
     const inputs = [
       { deviceId: 'b10', label: 'camera2 10, facing back' },
@@ -193,6 +207,9 @@ describe('chooseLens', () => {
     expect(androidBackCameraIndex('camera2 0, facing back')).toBe(0);
     expect(androidBackCameraIndex(' camera2 12, facing back ')).toBe(12);
     expect(androidBackCameraIndex('camera2 1, facing front')).toBeNull();
+    expect(androidBackCameraIndex('camera 2, facing back')).toBe(2);
+    expect(androidBackCameraIndex('camera 0, facing back, infrared')).toBeNull();
+    expect(androidBackCameraIndex('camera22 0, facing back')).toBeNull();
     expect(classifyLensLabel('ios', 'Back Ultra Wide Camera')).toBe('unknown');
     expect(classifyLensLabel('other', 'camera2 0, facing back')).toBe('unknown');
   });

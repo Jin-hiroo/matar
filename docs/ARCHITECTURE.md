@@ -434,8 +434,10 @@ tries to stay on one lens:
    Report `lens: 'pinned' | 'virtual' | 'unknown'` (`LensKind`) in stats and
    the chosen label. More
    locales are added from device-test data, not guessed.
-4. **Android / Chrome**: back cameras are labelled `camera2 N, facing back`
-   (not localised). Choose the lowest N; reopen if the current track isn't it.
+4. **Android / Chrome**: back cameras are labelled `camera N, facing back`
+   (`camera2 N, …` in older Chrome; not localised; infrared ones end in
+   `, infrared` and are skipped). Choose the lowest N; reopen if the current
+   track isn't it.
 5. Expose `listCameras()` (labels + deviceIds after permission) so apps can
    offer a picker and persist the choice.
 
