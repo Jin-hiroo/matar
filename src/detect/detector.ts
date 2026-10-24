@@ -30,6 +30,7 @@ import { TagReader } from './sample.js';
 import {
   adaptiveThreshold,
   decimate2x2,
+  linearMidpointTable,
   thresholdScratchSize,
   type ThresholdScratch,
 } from './threshold.js';
@@ -48,7 +49,7 @@ export const MIN_SIDE_PX = 8;
 /** Placeholder for `gray` between calls (so the frame isn't retained). */
 const NO_IMAGE = new Uint8Array(0);
 
-/** 'auto' decimation: a full-resolution search at least every this many calls (§4.1 step 1). */
+/** 'auto' decimation: a full-resolution search at least every this many calls while some IDs are missing (§4.1 step 1). */
 export const AUTO_FULL_RES_EVERY = 8;
 /** 'auto' decimation: ×2 only if the previous call's smallest cell was ≥ this, full-res px (×2 still finds 99.6 % of tags at 3–4 px/cell). */
 export const AUTO_MIN_CELL_PX = 5;
@@ -85,6 +86,8 @@ export class TagDetector implements Detector {
 
   private readonly matcher: CodeMatcher;
   private readonly refiner: EdgeRefiner;
+  /** linear-light threshold midpoints (`linearMidpointTable`) */
+  private readonly midTable: Uint8Array;
   private readonly reader: TagReader;
   private readonly quadOpts: QuadFitOptions;
   private width = -1;
@@ -93,6 +96,8 @@ export class TagDetector implements Detector {
   private calls = 0;
   /** tags found by the previous call, and its smallest cell edge, full-res px */
   private prevCount = 0;
+  /** number of IDs looked for ('auto' skips the periodic ×1 call once all were found) */
+  private idCount = 0;
   private prevMinCellPx = 0;
   private dec = new Uint8Array(0);
   private labels = new Uint8Array(0);
@@ -137,14 +142,16 @@ export class TagDetector implements Detector {
     this.quadOpts = { minPerimeterPx: MIN_PERIMETER_PX, minSidePx: MIN_SIDE_PX, decimate: 1 };
     const lut = linearizationLut(gamma);
     this.refiner = new EdgeRefiner(lut);
+    this.midTable = linearMidpointTable(lut);
     this.reader = new TagReader(this.def, lut);
     this.matcher = new CodeMatcher(this.def);
-    this.matcher.setIds(o.ids);
+    this.setIds(o.ids);
     this.ensureBuffers(o.width, o.height);
   }
 
   setIds(ids: readonly number[] | 'all'): void {
     this.matcher.setIds(ids);
+    this.idCount = ids === 'all' ? this.def.family.count : new Set(ids).size;
     this.prevCount = 0; // a new board: search at full resolution next
   }
 
@@ -171,7 +178,16 @@ export class TagDetector implements Detector {
       const sw = follower.width;
       const sh = follower.height;
       // tile extrema over 2 × 2 block means: sensor noise on flat paper stays unknown
-      adaptiveThreshold(search, sw, sh, this.minContrast, this.labels, this.scratch, true);
+      adaptiveThreshold(
+        search,
+        sw,
+        sh,
+        this.minContrast,
+        this.labels,
+        this.scratch,
+        true,
+        this.midTable,
+      );
       this.quadOpts.decimate = d;
       this.gray = data;
       // an 8-connected border has at least perimeter / √2 points
@@ -184,13 +200,15 @@ export class TagDetector implements Detector {
   }
 
   /**
-   * §4.1 step 1: fixed, or for 'auto' ×1 on every 8th call and whenever the
-   * previous call found nothing; otherwise ×2 if the previous call's smallest
-   * cell was ≥ 8 px at full resolution, else ×1.
+   * §4.1 step 1: fixed, or for 'auto' ×1 whenever the previous call found
+   * nothing, and on every 8th call unless it found every ID looked for (no
+   * small tag left to find); otherwise ×2 if the previous call's smallest cell
+   * was ≥ 5 px at full resolution, else ×1.
    */
   private chooseDecimate(): 1 | 2 {
     if (this.decimateMode !== 'auto') return this.decimateMode;
-    if (this.calls % AUTO_FULL_RES_EVERY === 0 || this.prevCount === 0) return 1;
+    if (this.prevCount === 0) return 1;
+    if (this.calls % AUTO_FULL_RES_EVERY === 0 && this.prevCount < this.idCount) return 1;
     return this.prevMinCellPx >= AUTO_MIN_CELL_PX ? 2 : 1;
   }
 

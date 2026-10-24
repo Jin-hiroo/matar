@@ -181,6 +181,45 @@ describe('worker host with the real stages', () => {
     expect(r.returned).toBe(gray);
   });
 
+  it("posts a frame's result before the estimate the frame led to", async () => {
+    // a focal estimator that jumps on its first frame
+    const jumped = { ...k, fx: k.fx * 1.2, fy: k.fy * 1.2 };
+    const out: WorkerToMain[] = [];
+    const handle = createHost((m) => out.push(m), {
+      ...defaultStages,
+      createFocalEstimator: (initial) => {
+        let est: { intrinsics: typeof k; source: 'prior' | 'provided' | 'estimated' } = initial;
+        return {
+          add: () => {
+            est = { intrinsics: jumped, source: 'estimated' };
+            return { intrinsics: jumped, source: 'estimated', stdDevPct: 0.5, keyframes: 5 };
+          },
+          reset: () => undefined,
+          get intrinsics() {
+            return est.intrinsics;
+          },
+          get source() {
+            return est.source;
+          },
+          stdDevPct: null,
+        };
+      },
+    });
+    await handle({ type: 'init', board, intrinsics: null, options: OPTIONS });
+    await handle({
+      type: 'frame',
+      frameId: 1,
+      timestampMs: 1,
+      ...frameBase,
+      gray: { width: W, height: H, data: image.data.slice().buffer },
+    });
+    const replies = out.filter((m) => m.type !== 'ready');
+    expect(replies.map((m) => m.type)).toEqual(['result', 'intrinsics']);
+    const [r] = replies;
+    if (r?.type !== 'result') throw new Error('no result');
+    expect(r.focalSource).toBe('prior'); // what frame 1 was solved with
+  });
+
   it('uses provided intrinsics only for their own frame size', async () => {
     const provided = { ...k, fx: k.fx * 1.02, fy: k.fy * 1.02 };
     const out = await run([

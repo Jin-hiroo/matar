@@ -7,8 +7,8 @@ No WebXR, no app, no server.
 [![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-blue)](CHANGELOG.md)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)](package.json)
-[![Size: 34 KB min+gzip including the worker](https://img.shields.io/badge/size-34%20KB%20gzip-brightgreen)](.size-limit.json)
-[![Not yet tested on real phones](https://img.shields.io/badge/real%20phones-not%20yet%20tested-orange)](docs/DEVICE-TESTS.md)
+[![Size: 35 KB min+gzip including the worker](https://img.shields.io/badge/size-35%20KB%20gzip-brightgreen)](.size-limit.json)
+[![Real phones: one Android, partly tested](https://img.shields.io/badge/real%20phones-1%20Android%2C%20partly%20tested-orange)](docs/DEVICE-TESTS.md)
 
 [Spec](docs/SPEC.md) · [Architecture](docs/ARCHITECTURE.md) · [Demo](#demo) ·
 [Device tests](docs/DEVICE-TESTS.md) · [Changelog](CHANGELOG.md)
@@ -130,9 +130,10 @@ instead of the `VideoFrame`.
 
 All maths and vision stages are covered by synthetic tests with explicit tolerances
 ([TASKS.md](docs/TASKS.md)), and the whole pipeline runs end to end in Chromium with a fake
-camera. **It has not yet been tested on real phones**: iPhone Safari and Android Chrome
-behaviour (lens switching, frame formats, timings) is checked by hand with
-[DEVICE-TESTS.md](docs/DEVICE-TESTS.md), and the results will be recorded there.
+camera. **Real-phone testing has only started**: one Android phone (Chrome) tracks the
+board, and there the default `frame` background felt better than `live`. The full smoke
+test and iPhone Safari are still to do. Results are recorded in
+[DEVICE-TESTS.md](docs/DEVICE-TESTS.md).
 
 ## Development
 

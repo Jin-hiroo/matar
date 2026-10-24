@@ -19,9 +19,10 @@
  *    lens, `'pinned'`). Otherwise stay on the virtual device (`'virtual'`) and
  *    apply `zoom: 1` if the capabilities offer `zoom.min < 1` (WebKit doubles
  *    the zoom factor on virtual devices, so 1 is the wide framing).
- * 3. Android/Chrome: back cameras are labelled `camera2 N, facing back` (not
- *    localised). Choose the lowest N (`'pinned'`); reopen if the open track is
- *    another one. No such labels → keep (`'unknown'`).
+ * 3. Android/Chrome: back cameras are labelled `camera N, facing back`
+ *    (`camera2 N, …` in older Chrome; not localised; infrared ones end in
+ *    `, infrared` and don't count). Choose the lowest N (`'pinned'`); reopen if
+ *    the open track is another one. No such labels → keep (`'unknown'`).
  * 4. Other platforms: keep the open track (`'unknown'`).
  *
  * More iOS locales are added from device-test data (DEVICE-TESTS.md), not guessed.
@@ -66,9 +67,9 @@ export type LensDecision =
     }
   | { action: 'reopen'; lens: LensKind; deviceId: string; label: string };
 
-const ANDROID_BACK = /^camera2 (\d+), facing back$/;
+const ANDROID_BACK = /^camera2? (\d+), facing back$/;
 
-/** N of an Android `camera2 N, facing back` label, else null. */
+/** N of an Android `camera N, facing back` (or older `camera2 N, …`) label, else null. */
 export function androidBackCameraIndex(label: string): number | null {
   const m = ANDROID_BACK.exec(label.trim());
   return m ? Number(m[1]) : null;

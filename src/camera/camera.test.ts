@@ -10,11 +10,12 @@ import {
   MatarError,
   openCamera,
   reopenCamera,
+  shortenExposure,
   toCameraError,
   toCameraList,
   type TrackLensInfo,
 } from './index.js';
-import { domError, FakeMediaDevices } from './__tests__/fake-media.js';
+import { domError, FakeMediaDevices, FakeTrack } from './__tests__/fake-media.js';
 
 const UA = {
   iphone:
@@ -146,6 +147,20 @@ describe('chooseLens', () => {
     const keep = chooseLens('android', inputs, { deviceId: 'b0', label: 'camera2 0, facing back' });
     expect(keep).toMatchObject({ action: 'keep', lens: 'pinned', deviceId: 'b0', zoom: null });
   });
+  it('Android: current Chrome labels (camera N), and infrared back cameras do not count', () => {
+    const inputs = [
+      { deviceId: 'ir', label: 'camera 0, facing back, infrared' },
+      { deviceId: 'f', label: 'camera 1, facing front' },
+      { deviceId: 'b2', label: 'camera 2, facing back' },
+      { deviceId: 'b3', label: 'camera 3, facing back' },
+    ];
+    expect(
+      chooseLens('android', inputs, { deviceId: 'b3', label: 'camera 3, facing back' }),
+    ).toEqual({ action: 'reopen', lens: 'pinned', deviceId: 'b2', label: 'camera 2, facing back' });
+    expect(
+      chooseLens('android', inputs, { deviceId: 'b2', label: 'camera 2, facing back' }),
+    ).toMatchObject({ action: 'keep', lens: 'pinned', deviceId: 'b2' });
+  });
   it('Android: two-digit N compares numerically', () => {
     const inputs = [
       { deviceId: 'b10', label: 'camera2 10, facing back' },
@@ -193,6 +208,9 @@ describe('chooseLens', () => {
     expect(androidBackCameraIndex('camera2 0, facing back')).toBe(0);
     expect(androidBackCameraIndex(' camera2 12, facing back ')).toBe(12);
     expect(androidBackCameraIndex('camera2 1, facing front')).toBeNull();
+    expect(androidBackCameraIndex('camera 2, facing back')).toBe(2);
+    expect(androidBackCameraIndex('camera 0, facing back, infrared')).toBeNull();
+    expect(androidBackCameraIndex('camera22 0, facing back')).toBeNull();
     expect(classifyLensLabel('ios', 'Back Ultra Wide Camera')).toBe('unknown');
     expect(classifyLensLabel('other', 'camera2 0, facing back')).toBe('unknown');
   });
@@ -346,5 +364,146 @@ describe('openCamera', () => {
     });
     expect(again.track).not.toBe(cam.track);
     expect(again).toMatchObject({ lens: 'virtual', zoom: 1, deviceId: 'triple' });
+  });
+});
+
+describe('shortenExposure', () => {
+  // what the Android test phone offers (DEVICE-TESTS.md, 2026-10-23): 0–150 ms, ISO 12–3200
+  const CAPS = {
+    exposureMode: ['continuous', 'manual'],
+    exposureTime: { min: 0, max: 1500 },
+    iso: { min: 12, max: 3200 },
+  };
+  /** a track at `ms` and `iso`; `applies` keys of a set are taken as given */
+  const track = (ms: number, iso: number, applies = ['exposureMode', 'exposureTime', 'iso']) => {
+    const t = new FakeTrack('c0', 'camera 0, facing back', CAPS, {
+      exposureMode: 'continuous',
+      exposureTime: ms * 10,
+      iso,
+    });
+    t.onApply = (set, tr) => {
+      for (const k of applies) if (k in set) tr.settings[k] = set[k];
+    };
+    return t;
+  };
+  const now = () => Promise.resolve();
+  const yes = () => true;
+
+  it('sets the maximum with the ISO raised to keep the brightness, once the camera confirms', async () => {
+    const t = track(10, 250);
+    const got = await shortenExposure(t, 4, now, yes);
+    expect(t.applied).toEqual([
+      { advanced: [{ exposureMode: 'manual', exposureTime: 40, iso: 625 }] },
+    ]);
+    expect(got).toEqual({ state: 'short', timeMs: 4, iso: 625 });
+  });
+
+  it('clamps the ISO to its range (the image is darker then)', async () => {
+    const t = track(20, 1000);
+    expect(await shortenExposure(t, 4, now, yes)).toEqual({ state: 'short', timeMs: 4, iso: 3200 });
+  });
+
+  it('leaves an automatic exposure that is already short enough alone', async () => {
+    const t = track(3, 100);
+    expect(await shortenExposure(t, 4, now, yes)).toEqual({ state: 'auto', timeMs: 3, iso: 100 });
+    expect(t.applied).toEqual([]);
+  });
+
+  it('unsupported without manual exposure, ISO control or a reported exposure time', async () => {
+    const noManual = new FakeTrack('c', 'Back Camera', { exposureMode: ['continuous'] }, {});
+    const noIso = new FakeTrack('c', 'x', { ...CAPS, iso: undefined }, { exposureTime: 100 });
+    const noTime = new FakeTrack('c', 'x', CAPS, { iso: 100 });
+    // the shortest time offered (12 ms) isn't shorter than the automatic 10 ms
+    const longMin = new FakeTrack(
+      'c',
+      'x',
+      { ...CAPS, exposureTime: { min: 120, max: 1500 } },
+      {
+        exposureTime: 100,
+        iso: 250,
+      },
+    );
+    for (const t of [noManual, noIso, noTime, longMin]) {
+      expect((await shortenExposure(t, 4, now, yes))?.state).toBe('unsupported');
+      expect(t.applied).toEqual([]);
+    }
+  });
+
+  it('back to automatic if the camera keeps another time (it took only the ISO once)', async () => {
+    const t = track(10, 250, ['exposureMode', 'iso']);
+    const got = await shortenExposure(t, 4, now, yes);
+    expect(t.applied.at(-1)).toEqual({ advanced: [{ exposureMode: 'continuous' }] });
+    expect(got?.state).toBe('refused');
+  });
+
+  it('back to automatic if applyConstraints rejects', async () => {
+    const t = track(10, 250);
+    t.onApply = (set) => {
+      if (set.exposureMode === 'manual') throw domError('OverconstrainedError');
+    };
+    const got = await shortenExposure(t, 4, now, yes);
+    expect(
+      t.applied.map((c) => (c.advanced?.[0] as { exposureMode?: string }).exposureMode),
+    ).toEqual(['manual', 'continuous']);
+    expect(got?.state).toBe('refused');
+  });
+
+  it('ranges with only a minimum: raised to it', async () => {
+    const t = new FakeTrack(
+      'c',
+      'x',
+      { exposureMode: ['manual'], exposureTime: { min: 50 }, iso: { min: 700 } },
+      { exposureTime: 100, iso: 250 },
+    );
+    t.onApply = (set, tr) => Object.assign(tr.settings, set);
+    // 4 ms → 5 ms (the minimum); ISO 250 × 10 / 5 = 500 → 700 (the minimum)
+    expect(await shortenExposure(t, 4, now, yes)).toEqual({ state: 'short', timeMs: 5, iso: 700 });
+  });
+
+  it('back to automatic if the confirmation fails (settings unreadable, wait rejected)', async () => {
+    const unreadable = track(10, 250);
+    const get = unreadable.getSettings.bind(unreadable);
+    let reads = 0;
+    unreadable.getSettings = () => {
+      if (++reads === 2) throw new Error('gone');
+      return get();
+    };
+    const rejected = track(10, 250);
+    for (const [t, wait] of [
+      [unreadable, now],
+      [rejected, () => Promise.reject(new Error('timer'))],
+    ] as const) {
+      const got = await shortenExposure(t, 4, wait, yes);
+      expect(t.applied.at(-1)).toEqual({ advanced: [{ exposureMode: 'continuous' }] });
+      expect(got?.state).toBe('refused');
+    }
+  });
+
+  it('refused reports what the camera says if going back fails too', async () => {
+    const t = track(10, 250, ['exposureMode', 'iso']);
+    const apply = t.onApply!; // `!`: set by track()
+    t.onApply = (set, tr) => {
+      if (set.exposureMode === 'continuous') throw domError('OverconstrainedError');
+      apply(set, tr);
+    };
+    // still manual, ISO raised, time unchanged
+    expect(await shortenExposure(t, 4, now, yes)).toEqual({
+      state: 'refused',
+      timeMs: 10,
+      iso: 625,
+    });
+  });
+
+  it('does nothing more to a track that was stopped or replaced while it waited', async () => {
+    const t = track(10, 250, ['exposureMode', 'iso']);
+    let live = true;
+    const got = await shortenExposure(
+      t,
+      4,
+      () => ((live = false), Promise.resolve()),
+      () => live,
+    );
+    expect(got).toBeNull();
+    expect(t.applied).toHaveLength(1); // the manual set only, no going back
   });
 });

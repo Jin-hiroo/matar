@@ -6,6 +6,9 @@
  * - `three`: the real-three texture-ring readback test (tests/e2e/three).
  *
  * Both pages are served by Vite on localhost (a secure context, plain HTTP).
+ * With MATAR_DEMO_URL set, `demo` runs against that deployed copy of the demo
+ * instead (e.g. the Vercel deployment, vercel.json), and no local demo server
+ * is started.
  */
 import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
@@ -14,6 +17,7 @@ const DEMO_PORT = 5180;
 const THREE_PORT = 5191;
 const Y4M = resolve('tests/out/fake-camera.y4m');
 const reuse = !process.env.CI;
+const demoUrl = process.env.MATAR_DEMO_URL;
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -27,7 +31,7 @@ export default defineConfig({
       testMatch: 'demo.spec.ts',
       use: {
         ...devices['Desktop Chrome'],
-        baseURL: `http://localhost:${DEMO_PORT}`,
+        baseURL: demoUrl ?? `http://localhost:${DEMO_PORT}`,
         permissions: ['camera'],
         launchOptions: {
           args: [
@@ -53,12 +57,16 @@ export default defineConfig({
     },
   ],
   webServer: [
-    {
-      command: `pnpm exec vite demo --port ${DEMO_PORT} --strictPort`,
-      url: `http://localhost:${DEMO_PORT}`,
-      env: { MATAR_E2E: '1' },
-      reuseExistingServer: reuse,
-    },
+    ...(demoUrl
+      ? []
+      : [
+          {
+            command: `pnpm exec vite demo --port ${DEMO_PORT} --strictPort`,
+            url: `http://localhost:${DEMO_PORT}`,
+            env: { MATAR_E2E: '1' },
+            reuseExistingServer: reuse,
+          },
+        ]),
     {
       command: `pnpm exec vite tests/e2e/three --port ${THREE_PORT} --strictPort`,
       url: `http://localhost:${THREE_PORT}`,

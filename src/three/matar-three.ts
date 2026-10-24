@@ -4,9 +4,15 @@
  *
  * - Pose: by default the **raw** pose of the shown frame (`pose: 'raw'`): in
  *   synced mode it was fitted to exactly the pixels on screen, so content stays
- *   on the paper with no filter lag; frames without a pose fall back to the
- *   tracker's smoothed pose (its loss hold). `pose: 'smoothed'` uses the One
- *   Euro output throughout. `boardFromCamera` (GL, mm, column-major) becomes
+ *   on the paper with no filter lag. A frame without a pose (still tracking,
+ *   per the smoothed pose's loss hold) gets the last two raw poses
+ *   extrapolated to its timestamp, not the lagging hold pose; the smoothed
+ *   pose only before any raw one. A raw pose more than 20 mm or 5° from the
+ *   last two extrapolated to its time (at most 100 ms and 3 intervals ahead)
+ *   is a one-frame spike (a frame where blur left 1–3 badly placed tags) and
+ *   is treated like a frame without a pose, unless 3 come in a row: then the
+ *   motion restarts there (the filter's jump gate, §5.6). `pose: 'smoothed'` uses the One Euro output
+ *   throughout. `boardFromCamera` (GL, mm, column-major) becomes
  *   `camera.matrix` with the translation × `mmToM`, then `decompose`d (§7.1).
  *   The board is the world, in metres.
  * - Projection: `makePerspective` with the §2.6 frustum of the cover-crop
@@ -37,7 +43,7 @@ import {
   type Scene,
   type WebGLRenderer,
 } from 'three';
-import type { GrabEvent, Mat4, PoseEvent, Tracker } from '../types.js';
+import type { CameraIntrinsics, GrabEvent, Mat4, PoseEvent, Tracker } from '../types.js';
 import { coverFit, frustum } from './fit.js';
 import { mmToM } from './units.js';
 
@@ -87,6 +93,12 @@ interface Slot {
 const IDENTITY = new Matrix4();
 /** live mode: extrapolate at most this far ahead of the last pose, ms */
 const MAX_EXTRAPOLATE_MS = 100;
+/** poses further apart than this are not one motion (no velocity across), ms */
+const MAX_GAP_MS = 250;
+/** raw mode: a pose this far from the extrapolated ones is a spike, unless JUMP_FRAMES in a row (the filter's defaults, §5.6) */
+const JUMP_M = 20 * mmToM;
+const JUMP_RAD = (5 * Math.PI) / 180;
+const JUMP_FRAMES = 3;
 
 /** A pose in metres with its frame timestamp (live-mode extrapolation). */
 interface Sample {
@@ -107,8 +119,18 @@ export class MatarThree {
   private liveTex: VideoTexture | null = null;
   private liveFrameT: number | null = null;
   private liveHandle: number | null = null;
-  /** live mode: the last two poses (older first) */
+  /** the last two poses that drive the camera, for extrapolation (older first) */
   private readonly samples: Sample[] = [];
+  /** frame ID of the last pose event (a smaller one = tracker restart) */
+  private lastFrameId = -1;
+  /** intrinsics of the last pose event (another size = new orientation) */
+  private lastK: CameraIntrinsics | null = null;
+  /** raw mode: consecutive raw poses taken for spikes */
+  private jumps = 0;
+  /** raw mode: a pose has matched the samples' prediction since the motion started */
+  private checked = false;
+  /** pose events queued when the motion ended (`resetMotion`): shown with their own pose, no samples */
+  private readonly stale = new WeakSet<PoseEvent>();
   private seq = 0;
   private shown: Slot | null = null;
   /** `background: 'none'`: the newest pose event not applied yet */
@@ -143,6 +165,7 @@ export class MatarThree {
       this.watchVideoFrames();
     }
     this.tracker.addEventListener('pose', this.onPose);
+    this.tracker.addEventListener('state', this.onState);
   }
 
   /**
@@ -168,14 +191,11 @@ export class MatarThree {
     const cam = this.camera;
     if (next) {
       this.current = next;
-      const m = this.poseOf(next);
-      if (m && this.mode === 'live') this.addSample(next.timestampMs, m);
-      else if (m) setPose(cam, m);
-      if (!m) this.samples.length = 0;
+      this.applyPose(next);
     }
     if (this.liveTex) {
       this.scene.background = this.liveTex;
-      if (this.current && this.poseOf(this.current)) this.applyExtrapolated();
+      if (this.samples.length) this.applyExtrapolated(this.liveFrameT ?? performance.now());
     }
     const e = this.current;
     if (!e) {
@@ -214,13 +234,32 @@ export class MatarThree {
     return { tracking: e.smoothed !== null, frameId: e.frameId };
   }
 
-  /** The matrix that drives the camera for a pose event (see `pose`). */
-  private poseOf(e: PoseEvent): Mat4 | null {
-    if (this.poseKind === 'smoothed') return e.smoothed;
-    return e.pose?.boardFromCamera ?? e.smoothed;
+  /**
+   * A new pose event: remember its pose for extrapolation and, unless live, put
+   * the camera there. A frame without a raw pose (raw mode, still tracking)
+   * gets the last raw poses extrapolated to its time: the hold pose lags
+   * behind the frame on screen, which made content jump during fast moves.
+   * So does a raw pose taken for a spike (`isJump`). An event queued before
+   * the motion ended (`resetMotion`) gets its own pose and nothing else.
+   */
+  private applyPose(e: PoseEvent): void {
+    const m = this.poseKind === 'smoothed' ? e.smoothed : (e.pose?.boardFromCamera ?? null);
+    if (this.stale.has(e)) {
+      const own = m ?? e.smoothed;
+      if (own) setPose(this.camera, own);
+      return;
+    }
+    if (m && (this.poseKind === 'smoothed' || !this.isJump(e.timestampMs, m))) {
+      this.addSample(e.timestampMs, m);
+      if (this.mode !== 'live') setPose(this.camera, m);
+    } else if (e.smoothed) {
+      // nothing to extrapolate from (e.g. built during a loss hold): the hold pose
+      if (!this.samples.length) setPose(this.camera, e.smoothed);
+      else if (this.mode !== 'live') this.applyExtrapolated(e.timestampMs);
+    }
   }
 
-  /** live: remember a pose (metres) for extrapolation. */
+  /** Remember a pose (metres) for extrapolation. */
   private addSample(t: number, m: Mat4): void {
     const s = this.samples.length === 2 ? this.samples.shift()! : null; // `!`: length 2
     const sample = s ?? { t: 0, p: new Vector3(), q: new Quaternion() };
@@ -229,39 +268,82 @@ export class MatarThree {
     sample.p.setFromMatrixPosition(TMP_M).multiplyScalar(mmToM);
     sample.q.setFromRotationMatrix(TMP_M);
     const last = this.samples[this.samples.length - 1];
-    if (last && (t <= last.t || t - last.t > 250)) this.samples.length = 0; // gap or restart
+    if (last && (t <= last.t || t - last.t > MAX_GAP_MS)) this.samples.length = 0; // gap or restart
     this.samples.push(sample);
   }
 
   /**
-   * live: the newest pose moved forward at constant velocity to the time of the
-   * video frame on screen (at most MAX_EXTRAPOLATE_MS and 3 pose intervals).
+   * Raw mode: is `m` (frame time `t`) a spike? True if it is more than JUMP_M
+   * or JUMP_RAD from the last two poses extrapolated to `t`, unless it is the
+   * JUMP_FRAMES-th such pose in a row: then the motion restarts there. Until a
+   * pose has matched the prediction, the velocity may come from a bad first or
+   * second pose (nothing to compare them with): a pose near the last one is
+   * taken, and one near only the one before drops the last from the velocity.
+   * False where the prediction doesn't reach: without a velocity (one pose),
+   * or `t` beyond what `predict` extrapolates (MAX_EXTRAPOLATE_MS, 3
+   * intervals), as after a dropout during fast motion.
    */
-  private applyExtrapolated(): void {
+  private isJump(t: number, m: Mat4): boolean {
+    const [s0, s1] = this.samples;
+    if (!s0 || !s1 || !(t > s1.t && t - s1.t <= Math.min(MAX_EXTRAPOLATE_MS, 3 * (s1.t - s0.t)))) {
+      // after spikes the motion restarts here
+      if (this.jumps > 0) this.samples.length = 0;
+      this.jumps = 0;
+      this.checked = false;
+      return false;
+    }
+    this.predict(t, PRED_P, PRED_Q);
+    TMP_M.fromArray(m);
+    RAW_P.setFromMatrixPosition(TMP_M).multiplyScalar(mmToM);
+    RAW_Q.setFromRotationMatrix(TMP_M);
+    const predicted = near(PRED_P, PRED_Q);
+    if (predicted || (!this.checked && (near(s1.p, s1.q) || near(s0.p, s0.q)))) {
+      if (!predicted && !near(s1.p, s1.q)) this.samples.pop(); // s1 was the spike
+      this.checked ||= predicted;
+      this.jumps = 0;
+      return false;
+    }
+    if (++this.jumps < JUMP_FRAMES) return true;
+    this.jumps = 0;
+    this.samples.length = 0;
+    return false;
+  }
+
+  /** The camera at the newest pose moved forward to `target` (`predict`). */
+  private applyExtrapolated(target: number): void {
     const cam = this.camera;
+    if (!this.predict(target, cam.position, cam.quaternion)) return;
+    cam.scale.set(1, 1, 1);
+    cam.updateMatrix();
+    cam.updateMatrixWorld();
+  }
+
+  /**
+   * The newest pose moved forward at constant velocity to `target` (frame
+   * timestamp, ms): at most MAX_EXTRAPOLATE_MS and 3 pose intervals ahead.
+   * Writes `p`, `q`; false without a pose.
+   */
+  private predict(target: number, p: Vector3, q: Quaternion): boolean {
     const n = this.samples.length;
     const s1 = this.samples[n - 1];
-    if (!s1) return;
-    cam.position.copy(s1.p);
-    cam.quaternion.copy(s1.q);
+    if (!s1) return false;
+    p.copy(s1.p);
+    q.copy(s1.q);
     const s0 = n > 1 ? this.samples[0] : undefined;
-    const target = this.liveFrameT ?? performance.now();
     const ahead = Math.min(Math.max(target - s1.t, 0), MAX_EXTRAPOLATE_MS);
     if (s0 && ahead > 0) {
       const k = Math.min(ahead / (s1.t - s0.t), 3);
-      cam.position.addScaledVector(TMP_V.subVectors(s1.p, s0.p), k);
+      p.addScaledVector(TMP_V.subVectors(s1.p, s0.p), k);
       // rotation: q1 · (q0⁻¹ q1)^k
       TMP_Q.copy(s0.q).invert().multiply(s1.q);
       if (TMP_Q.w < 0) TMP_Q.set(-TMP_Q.x, -TMP_Q.y, -TMP_Q.z, -TMP_Q.w);
       const angle = 2 * Math.acos(Math.min(1, TMP_Q.w));
       if (angle > 1e-9) {
         TMP_V.set(TMP_Q.x, TMP_Q.y, TMP_Q.z).normalize();
-        cam.quaternion.multiply(TMP_Q.setFromAxisAngle(TMP_V, angle * k));
+        q.multiply(TMP_Q.setFromAxisAngle(TMP_V, angle * k));
       }
     }
-    cam.scale.set(1, 1, 1);
-    cam.updateMatrix();
-    cam.updateMatrixWorld();
+    return true;
   }
 
   /** live: track the presentation time of the newest video frame (same clock as pose timestamps). */
@@ -309,6 +391,7 @@ export class MatarThree {
   dispose(): void {
     this.tracker.removeEventListener('grab', this.onGrab);
     this.tracker.removeEventListener('pose', this.onPose);
+    this.tracker.removeEventListener('state', this.onState);
     for (const s of this.ring) {
       if (this.scene.background === s.tex) this.scene.background = null;
       s.tex.dispose();
@@ -339,6 +422,19 @@ export class MatarThree {
 
   /** `pose`: remember it with its frame's texture; frames no longer in the ring are skipped. */
   private readonly onPose = (e: PoseEvent): void => {
+    // a loss, a tracker restart or a new orientation (the tracker resets its
+    // filter) ends the motion the samples describe, even if `update()` never
+    // applies this event
+    const k = this.lastK;
+    if (
+      (!e.smoothed && !e.pose) ||
+      e.frameId < this.lastFrameId ||
+      (k && (k.width !== e.intrinsics.width || k.height !== e.intrinsics.height))
+    ) {
+      this.resetMotion();
+    }
+    this.lastFrameId = e.frameId;
+    this.lastK = e.intrinsics;
     if (!this.ring.length) {
       this.pending = e;
       return;
@@ -349,6 +445,18 @@ export class MatarThree {
     }
     if (slot) slot.pose = e;
   };
+
+  /** `state`: a stop, pause or restart ends the motion too (frame IDs keep counting across them). */
+  private readonly onState = (): void => this.resetMotion();
+
+  /** Ends the motion: no velocity, and pose events queued before don't start one again. */
+  private resetMotion(): void {
+    this.samples.length = 0;
+    this.jumps = 0;
+    this.checked = false;
+    if (this.pending) this.stale.add(this.pending);
+    for (const s of this.ring) if (s.pose) this.stale.add(s.pose);
+  }
 
   private checkParent(): void {
     const p = this.camera.parent;
@@ -363,6 +471,15 @@ export class MatarThree {
 const TMP_M = new Matrix4();
 const TMP_V = new Vector3();
 const TMP_Q = new Quaternion();
+const RAW_P = new Vector3();
+const RAW_Q = new Quaternion();
+const PRED_P = new Vector3();
+const PRED_Q = new Quaternion();
+
+/** Raw mode: is the pose in RAW_P, RAW_Q within JUMP_M and JUMP_RAD of `p`, `q`? */
+function near(p: Vector3, q: Quaternion): boolean {
+  return RAW_P.distanceTo(p) <= JUMP_M && RAW_Q.angleTo(q) <= JUMP_RAD;
+}
 
 /** `boardFromCamera` (GL, mm, column-major) → camera position/quaternion/scale in metres. */
 function setPose(cam: PerspectiveCamera, boardFromCamera: Mat4): void {

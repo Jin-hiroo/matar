@@ -9,6 +9,7 @@ import type {
   Board,
   BoardPose,
   CameraIntrinsics,
+  FocalSource,
   GrabEvent,
   MainToWorker,
   Mat4,
@@ -19,7 +20,12 @@ import type {
 } from '../types.js';
 import type { WorkerPort } from '../worker/port.js';
 import type { FrameSource } from './grab.js';
-import { createTracker, type TrackerEnv } from './tracker.js';
+import {
+  createTracker,
+  EXPOSURE_CONFIRM_MS,
+  EXPOSURE_SETTLE_MS,
+  type TrackerEnv,
+} from './tracker.js';
 
 const BOARD: Board = {
   family: 'tag36h11',
@@ -36,13 +42,20 @@ class FakeVideo {
   autoplay = false;
   isConnected = false;
   style: Record<string, string> = {};
-  private cbs = new Map<number, (now: number, meta: { expectedDisplayTime: number }) => void>();
+  /** media time of the current frame, s */
+  mediaTime = 0;
+  private cbs = new Map<
+    number,
+    (now: number, meta: { expectedDisplayTime: number; mediaTime: number }) => void
+  >();
   private next = 1;
   setAttribute(): void {}
   play(): Promise<void> {
     return Promise.resolve();
   }
-  requestVideoFrameCallback(cb: (now: number, meta: { expectedDisplayTime: number }) => void) {
+  requestVideoFrameCallback(
+    cb: (now: number, meta: { expectedDisplayTime: number; mediaTime: number }) => void,
+  ) {
     const h = this.next++;
     this.cbs.set(h, cb);
     return h;
@@ -50,11 +63,12 @@ class FakeVideo {
   cancelVideoFrameCallback(h: number): void {
     this.cbs.delete(h);
   }
-  /** a new video frame is presented */
-  tick(t: number): void {
+  /** a new video frame (media time `mediaTime` s) is presented and its callbacks run */
+  tick(t: number, mediaTime = t / 1000): void {
+    this.mediaTime = mediaTime;
     const cbs = [...this.cbs.values()];
     this.cbs.clear();
-    for (const cb of cbs) cb(t, { expectedDisplayTime: t });
+    for (const cb of cbs) cb(t, { expectedDisplayTime: t, mediaTime });
   }
 }
 
@@ -94,8 +108,14 @@ class FakePort extends EventTarget implements WorkerPort {
       (m): m is Extract<MainToWorker, { type: 'frame' }> => m.type === 'frame',
     );
   }
-  /** answers frame `frameId` with a result carrying `pose` */
-  result(frameId: number, timestampMs: number, pose: BoardPose | null): void {
+  /** answers frame `frameId` with a result carrying `pose`, solved with `k` from `focalSource` */
+  result(
+    frameId: number,
+    timestampMs: number,
+    pose: BoardPose | null,
+    k: CameraIntrinsics = K,
+    focalSource: FocalSource = 'prior',
+  ): void {
     this.reply({
       type: 'result',
       frameId,
@@ -104,8 +124,8 @@ class FakePort extends EventTarget implements WorkerPort {
       height: 480,
       detections: [],
       pose,
-      intrinsics: K,
-      focalSource: 'prior',
+      intrinsics: k,
+      focalSource,
       timingsMs: { gray: 0, detect: 1, pose: 1, focal: 0, total: 2 },
       frame: { path: 'gray', format: null, codedWidth: 640, codedHeight: 480, rotationDeg: 0 },
     });
@@ -119,6 +139,20 @@ function grayFrameSource(): FrameSource & { grabs: number } {
     grab() {
       this.grabs++;
       return { frame: null, gray: { width: 640, height: 480, data: new ArrayBuffer(640 * 480) } };
+    },
+    recycle() {},
+  };
+}
+
+/** `new VideoFrame(video)` stand-in: frames carry the video's current media time. */
+function videoFrameSource(video: FakeVideo): FrameSource & { closed: number } {
+  return {
+    path: 'videoframe',
+    closed: 0,
+    grab() {
+      const close = () => this.closed++;
+      const frame = { timestamp: Math.round(video.mediaTime * 1e6), close };
+      return { frame: frame as unknown as VideoFrame, gray: null };
     },
     recycle() {},
   };
@@ -164,6 +198,7 @@ function harness(
     },
     screenAngleDeg: () => 0,
     now: () => 0,
+    sleep: () => Promise.resolve(),
     readyTimeoutMs: 50,
     ...over,
   };
@@ -227,6 +262,70 @@ describe('tracker', () => {
     expect(h.worker.terminated).toBe(true);
     expect(h.video.isConnected).toBe(false);
     expect(h.md.opened[0]!.stopped).toBe(true);
+  });
+
+  it("follows the worker's focal estimates in stats.focal and tracker.intrinsics", async () => {
+    const h = harness();
+    const tracker = createTracker({ board: BOARD }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    const K2 = { ...K, fx: K.fx * 1.2, fy: K.fy * 1.2 };
+    // as the worker host posts them: frame 1 (solved with the prior), then the
+    // estimate frame 1 led to, then frame 2 (solved with it)
+    h.video.tick(100);
+    h.worker.result(1, 100, pose(5));
+    h.worker.reply({ type: 'intrinsics', intrinsics: K2, source: 'estimated', stdDevPct: 0.5 });
+    expect(tracker.intrinsics).toEqual(K2);
+    h.video.tick(133);
+    h.worker.result(2, 133, pose(5), K2, 'estimated');
+    expect(poses.map((p) => p.stats.focal)).toEqual([
+      { fx: K.fx, source: 'prior', stdDevPct: null },
+      { fx: K2.fx, source: 'estimated', stdDevPct: 0.5 },
+    ]);
+    expect(tracker.intrinsics).toEqual(K2);
+    // a reset (another frame size, new intrinsics) shows in the next result
+    h.video.tick(166);
+    h.worker.result(3, 166, pose(5), K, 'prior');
+    expect(poses[2]!.stats.focal).toEqual({ fx: K.fx, source: 'prior', stdDevPct: null });
+    tracker.stop();
+  });
+
+  it('grabs a frame that came while the worker was busy if the video still shows it', async () => {
+    const h = harness();
+    const source = videoFrameSource(h.video);
+    h.env.frameSource = () => source;
+    const tracker = createTracker({ board: BOARD }, h.env);
+    const grabs: number[] = [];
+    tracker.addEventListener('grab', (e) => grabs.push((e as GrabEvent).frameId));
+    await tracker.start();
+    const sent = () => h.worker.frames().map((f) => [f.frameId, f.timestampMs]);
+
+    h.video.tick(100);
+    h.video.tick(117); // 16.7 ms later, worker busy
+    expect(sent()).toEqual([[1, 100]]);
+    h.worker.result(1, 100, pose(5));
+    expect(sent()).toEqual([
+      [1, 100],
+      [2, 117],
+    ]); // grabbed late, with its own timestamp
+    expect(grabs).toEqual([1, 2]);
+
+    // the video moved on before the result: the newer frame's callback grabs it
+    h.video.tick(150); // busy with 2
+    h.video.mediaTime = 0.183; // presented, callback not run yet
+    h.worker.result(2, 117, pose(5));
+    expect(sent()).toHaveLength(2);
+    expect(source.closed).toBe(1);
+    expect(grabs).toEqual([1, 2]);
+    h.video.tick(183);
+    expect(sent().at(-1)).toEqual([3, 183]);
+
+    // one in flight at a time, still
+    h.video.tick(200);
+    h.video.tick(217);
+    expect(sent()).toHaveLength(3);
+    tracker.stop();
   });
 
   it('holds the smoothed pose through short gaps and drops it after lostAfterMs', async () => {
@@ -352,6 +451,231 @@ describe('tracker', () => {
     expect(canvasMade).toBe(1);
     h.video.tick(2); // in-flight cleared by the fallback
     expect(h.worker.frames()).toHaveLength(2);
+    tracker.stop();
+  });
+
+  /** the harness's camera with the Android test phone's exposure controls, applying what it is asked */
+  function exposureCamera(h: Harness): void {
+    Object.assign(h.md.devices[0]!, {
+      caps: {
+        exposureMode: ['continuous', 'manual'],
+        exposureTime: { min: 0, max: 1500 },
+        iso: { min: 12, max: 3200 },
+      },
+      settings: { exposureMode: 'continuous', exposureTime: 100, iso: 250 },
+      onApply: (set: Record<string, unknown>, t: { settings: Record<string, unknown> }) =>
+        Object.assign(t.settings, set),
+    });
+  }
+
+  it('camera.maxExposureMs: set once the camera has settled and confirmed; in stats', async () => {
+    const h = harness();
+    exposureCamera(h);
+    const slept: number[] = [];
+    h.env.sleep = (ms) => (slept.push(ms), Promise.resolve());
+    const tracker = createTracker({ board: BOARD, camera: { maxExposureMs: 4 } }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    await tick();
+    // not a getUserMedia constraint
+    expect(JSON.stringify(h.md.calls)).not.toContain('xposure');
+    expect(slept).toEqual([EXPOSURE_SETTLE_MS, EXPOSURE_CONFIRM_MS]);
+    expect(h.md.opened[0]!.applied).toEqual([
+      { advanced: [{ exposureMode: 'manual', exposureTime: 40, iso: 625 }] },
+    ]);
+    h.video.tick(100);
+    h.worker.result(1, 100, pose(5));
+    expect(poses[0]!.stats.camera.exposure).toEqual({ state: 'short', timeMs: 4, iso: 625 });
+    tracker.stop();
+  });
+
+  it('camera.maxExposureMs: not asked → off; stop() while it waits leaves the camera alone', async () => {
+    const plain = harness();
+    const t0 = createTracker({ board: BOARD }, plain.env);
+    const poses: PoseEvent[] = [];
+    t0.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await t0.start();
+    plain.video.tick(100);
+    plain.worker.result(1, 100, pose(5));
+    expect(poses[0]!.stats.camera.exposure.state).toBe('off');
+    t0.stop();
+
+    const h = harness();
+    exposureCamera(h);
+    let settle = () => {};
+    h.env.sleep = () => new Promise<void>((r) => (settle = r));
+    const tracker = createTracker({ board: BOARD, camera: { maxExposureMs: 4 } }, h.env);
+    await tracker.start();
+    tracker.stop();
+    settle();
+    await tick();
+    expect(h.md.opened[0]!.applied).toEqual([]);
+  });
+
+  it('camera.maxExposureMs: a reacquire while it waits leaves the old track alone', async () => {
+    const h = harness();
+    exposureCamera(h);
+    const sleeps: (() => void)[] = [];
+    h.env.sleep = () => new Promise<void>((r) => sleeps.push(r));
+    const tracker = createTracker({ board: BOARD, camera: { maxExposureMs: 4 } }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    h.md.opened[0]!.end(); // e.g. Android ended the track in the background
+    for (let i = 0; i < 5; i++) {
+      await tick();
+      for (const r of sleeps.splice(0)) r();
+    }
+    expect(h.md.opened).toHaveLength(2);
+    expect(h.md.opened[0]!.applied).toEqual([]);
+    expect(h.md.opened[1]!.applied).toEqual([
+      { advanced: [{ exposureMode: 'manual', exposureTime: 40, iso: 625 }] },
+    ]);
+    h.video.tick(100);
+    h.worker.result(1, 100, pose(5));
+    const exposure = poses[0]!.stats.camera.exposure;
+    expect(exposure).toEqual({ state: 'short', timeMs: 4, iso: 625 });
+    expect(Object.isFrozen(exposure)).toBe(true);
+    tracker.stop();
+  });
+
+  it('camera.maxExposureMs: a failing timer is no unhandled rejection and changes nothing', async () => {
+    const h = harness();
+    exposureCamera(h);
+    h.env.sleep = () => Promise.reject(new Error('timer'));
+    const tracker = createTracker({ board: BOARD, camera: { maxExposureMs: 4 } }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    await tick();
+    expect(h.md.opened[0]!.applied).toEqual([]);
+    h.video.tick(100);
+    h.worker.result(1, 100, pose(5));
+    expect(poses[0]!.stats.camera.exposure.state).toBe('off');
+    tracker.stop();
+  });
+
+  it('stop() during start: start settles quietly and leaves nothing running', async () => {
+    // while waiting for the worker's `ready`
+    const h = harness({ readyTimeoutMs: 60_000 }, new FakePort('module', 'silent'));
+    const tracker = createTracker({ board: BOARD }, h.env);
+    const errors: string[] = [];
+    tracker.addEventListener('error', (e) => errors.push((e as TrackerErrorEvent).code));
+    const started = tracker.start();
+    for (let i = 0; i < 20 && !h.worker.sent.length; i++) await tick();
+    expect(h.worker.sent[0]?.type).toBe('init');
+    tracker.stop();
+    await expect(started).resolves.toBeUndefined();
+    expect(tracker.state).toBe('stopped');
+    expect(h.worker.terminated).toBe(true);
+    expect(h.inline.sent).toEqual([]); // no inline fallback
+    expect(errors).toEqual([]);
+
+    // while `video.play()` is pending (stop() clearing srcObject aborts it)
+    let spawned = 0;
+    const h2 = harness({
+      spawnWorker: () => {
+        spawned++;
+        return new FakePort('module');
+      },
+    });
+    let abort: ((e: unknown) => void) | null = null;
+    h2.video.play = () => new Promise<void>((_, reject) => (abort = reject));
+    const tracker2 = createTracker({ board: BOARD }, h2.env);
+    const errors2: string[] = [];
+    tracker2.addEventListener('error', (e) => errors2.push((e as TrackerErrorEvent).code));
+    const started2 = tracker2.start();
+    for (let i = 0; i < 20 && !abort; i++) await tick();
+    expect(abort).not.toBeNull(); // play() is pending
+    tracker2.stop();
+    abort!(domError('AbortError')); // `!`: checked above
+    await expect(started2).resolves.toBeUndefined();
+    expect(tracker2.state).toBe('stopped');
+    expect(spawned).toBe(0);
+    expect(errors2).toEqual([]);
+  });
+
+  it('start() from the stopped event restarts cleanly', async () => {
+    const h = harness();
+    const tracker = createTracker({ board: BOARD }, h.env);
+    await tracker.start();
+    let restarted: Promise<void> | null = null;
+    const onState = (e: Event) => {
+      if ((e as StateEvent).state !== 'stopped') return;
+      tracker.removeEventListener('state', onState);
+      restarted = tracker.start();
+    };
+    tracker.addEventListener('state', onState);
+    tracker.stop();
+    expect(restarted).not.toBeNull();
+    await restarted;
+    expect(tracker.state).toBe('running');
+    expect(h.video.isConnected).toBe(true);
+    expect(h.md.opened.map((t) => t.stopped)).toEqual([true, false]);
+    tracker.stop();
+  });
+
+  it('stop() from a worker-failed listener: no inline fallback starts', async () => {
+    const h = harness({}, new FakePort('module', 'error'));
+    const tracker = createTracker({ board: BOARD }, h.env);
+    tracker.addEventListener('error', () => tracker.stop());
+    await tracker.start();
+    expect(tracker.state).toBe('stopped');
+    expect(h.inline.sent).toEqual([]);
+  });
+
+  it('a camera reacquire still pending across stop() and start() leaves the new camera alone', async () => {
+    const h = harness();
+    const tracker = createTracker({ board: BOARD }, h.env);
+    await tracker.start();
+    // the track ends while visible; hold its reopen
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const gum = h.md.getUserMedia.bind(h.md);
+    h.md.getUserMedia = (c) => gate.then(() => gum(c));
+    h.md.opened[0]!.end();
+    await tick();
+    tracker.stop();
+    h.md.getUserMedia = gum;
+    await tracker.start();
+    release();
+    for (let i = 0; i < 5; i++) await tick();
+    // opened: the first camera, the restart's, the stale reopen (stopped at once)
+    expect(h.md.opened.map((t) => t.stopped)).toEqual([true, false, true]);
+    expect(tracker.state).toBe('running');
+    tracker.stop();
+    expect(h.md.opened.every((t) => t.stopped)).toBe(true);
+  });
+
+  it('stop() from a grab listener: the frame is closed, not sent', async () => {
+    const h = harness();
+    const source = videoFrameSource(h.video);
+    h.env.frameSource = () => source;
+    const tracker = createTracker({ board: BOARD }, h.env);
+    await tracker.start();
+    tracker.addEventListener('grab', () => tracker.stop());
+    expect(() => h.video.tick(100)).not.toThrow();
+    expect(h.worker.frames()).toEqual([]);
+    expect(source.closed).toBe(1);
+    expect(tracker.state).toBe('stopped');
+  });
+
+  it('setBoard: the result of a frame in flight (solved for the old board) is not published', async () => {
+    const h = harness();
+    const tracker = createTracker({ board: BOARD }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    h.video.tick(100);
+    tracker.setBoard({ ...BOARD });
+    expect(h.worker.sent.at(-1)?.type).toBe('board');
+    h.worker.result(1, 100, pose(5));
+    expect(poses).toEqual([]);
+    h.video.tick(133);
+    h.worker.result(2, 133, pose(7));
+    expect(poses.map((p) => p.frameId)).toEqual([2]);
+    expect(poses[0]!.smoothed?.[12]).toBeCloseTo(7, 9);
     tracker.stop();
   });
 

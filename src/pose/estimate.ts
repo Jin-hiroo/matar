@@ -33,7 +33,7 @@ import { PoseProblem, refinePose } from './refine.js';
 
 /** Tuning for `estimatePose`; the defaults are ARCHITECTURE.md §5's values. */
 export interface PoseOptions {
-  /** consensus inlier threshold: every corner of a tag within this, px (default 4) */
+  /** consensus inlier threshold, px (default 4): every corner within this, or (relaxed pass) the tag's shift within this and every corner within 3 × */
   inlierPx?: number;
   /** Huber threshold of the refinement, px (default 1.5) */
   huberPx?: number;

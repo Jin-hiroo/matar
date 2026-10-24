@@ -5,8 +5,10 @@
  * The last test runs the real pipeline on rendered frames.
  */
 import { describe, expect, it } from 'vitest';
+import { boardTagCornersMm } from '../../src/board/corners.js';
 import { createBoard, layoutBorderTags, pickTagIds } from '../../src/board/index.js';
 import { createDetector } from '../../src/detect/index.js';
+import { pxPerMm } from '../../src/pose/focal.js';
 import { createFocalEstimator, estimatePose, focalPrior } from '../../src/pose/index.js';
 import { intrinsicsFromFov, lookAtPose, randomViewPose } from '../../src/synth/camera.js';
 import { mulberry32, normalSampler } from '../../src/synth/random.js';
@@ -201,6 +203,81 @@ describe('P6 rules', () => {
     let got: FocalEstimate | null = null;
     for (const v of ring(6)) got = offer(est, REAL, v, noise) ?? got;
     expect(got).not.toBeNull();
+  });
+
+  it('pxPerMm: f / d straight down, ≈ f / d × √cos(tilt) tilted, from the points alone', () => {
+    for (const [d, tilt, tol] of [
+      [300, 0, 1e-6],
+      [600, 0, 1e-6],
+      [300, 45, 0.06],
+      [600, 30, 0.04],
+    ] as const) {
+      const dets = observe(BOARD, REAL, view(d, tilt, 20), noise, 0);
+      const src: number[] = [];
+      const dst: number[] = [];
+      const tags = new Map(BOARD.tags.map((t) => [t.id, t]));
+      for (const det of dets) {
+        for (const [x, z] of boardTagCornersMm(tags.get(det.id)!)) src.push(x, z); // `!`: observed from BOARD
+        for (const [u, v] of det.corners) dst.push(u, v);
+      }
+      const want = (REAL.fx / d) * Math.sqrt(Math.cos(tilt * DEG));
+      const got = pxPerMm(src, dst, src.length / 2);
+      expect(Math.abs(got / want - 1), `${d} mm, ${tilt}°`).toBeLessThan(tol);
+    }
+  });
+
+  it('up close, a fit over 1 px qualifies when it is under 1 mm on the paper', () => {
+    // σ 1.4 px at 260 mm and 45° is ≈ 0.6 mm: a pixel is less paper up close
+    const close = ring(6, 45, 0, 260);
+    const pxOnly = createFocalEstimator({ intrinsics: PRIOR, source: 'prior' }, { maxFitRmsMm: 0 });
+    for (const v of close) expect(offer(pxOnly, REAL, v, noise, 1.4)).toBeNull();
+    const est = createFocalEstimator({ intrinsics: PRIOR, source: 'prior' });
+    let got: FocalEstimate | null = null;
+    for (const v of close) got = offer(est, REAL, v, noise, 1.4) ?? got;
+    expect(got).not.toBeNull();
+    expect(Math.abs(pctErr(est.intrinsics.fx))).toBeLessThan(1);
+  });
+
+  it('a prior > 10 % off is replaced after 5 frames from one direction', () => {
+    // DEVICE-TESTS.md, 2026-10-23: a 59° camera under the 68° prior (20 % short),
+    // held at one angle, stayed on the prior (err 3.4 px)
+    const narrow = intrinsicsFromFov(W, H, 59);
+    const est = createFocalEstimator({ intrinsics: PRIOR, source: 'prior' });
+    const still = view(470, 34, 30);
+    for (let i = 0; i < 4; i++) expect(offer(est, narrow, still, noise, 0.6)).toBeNull();
+    const e = offer(est, narrow, still, noise, 0.6)!;
+    expect(e).not.toBeNull();
+    expect(e.source).toBe('estimated');
+    expect(Math.abs(pctErr(e.intrinsics.fx, narrow.fx))).toBeLessThan(1);
+    // the keyframes then refine it as usual
+    for (const v of ring(6, 35, 60, 470)) offer(est, narrow, v, noise, 0.6);
+    expect(Math.abs(pctErr(est.intrinsics.fx, narrow.fx))).toBeLessThan(0.5);
+    expect(est.stdDevPct).not.toBeNull();
+  });
+
+  it('after a jump from the prior, a switch back before acceptance jumps again', () => {
+    const narrow = intrinsicsFromFov(W, H, 59);
+    const est = createFocalEstimator({ intrinsics: PRIOR, source: 'prior' });
+    const still = view(470, 34, 30);
+    for (let i = 0; i < 5; i++) offer(est, narrow, still, noise, 0.3);
+    expect(Math.abs(pctErr(est.intrinsics.fx, narrow.fx))).toBeLessThan(1);
+    // the camera goes back to the prior's focal length, at the same angle
+    const back: (FocalEstimate | null)[] = [];
+    for (let i = 0; i < 5; i++) back.push(offer(est, PRIOR, still, noise, 0.3));
+    expect(back.slice(0, 4)).toEqual([null, null, null, null]);
+    expect(back[4]).not.toBeNull();
+    expect(Math.abs(pctErr(est.intrinsics.fx, PRIOR.fx))).toBeLessThan(1);
+  });
+
+  it('frames far from the prior that disagree with each other do not jump', () => {
+    // 1.2 × and 1.32 × the prior, alternating: > 5 % apart
+    const a = intrinsicsFromFov(W, H, 59);
+    const b = intrinsicsFromFov(W, H, 54);
+    const est = createFocalEstimator({ intrinsics: PRIOR, source: 'prior' });
+    const still = view(470, 34, 30);
+    for (let i = 0; i < 9; i++) expect(offer(est, i % 2 ? b : a, still, noise, 0.3)).toBeNull();
+    expect(est.source).toBe('prior');
+    expect(est.intrinsics.fx).toBe(PRIOR.fx);
   });
 
   it('rejects estimates outside [0.7, 1.4] × the prior', () => {

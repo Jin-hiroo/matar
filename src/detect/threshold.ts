@@ -6,7 +6,8 @@
  *   rounded mean of a 2 × 2 block. Decimated pixel p is centred on full-res
  *   (p + 0.5)·2 − 0.5 (pixel centres at integers, §2.4).
  * - `adaptiveThreshold`: 4 × 4 px tiles, each tile's min and max, extrema
- *   dilated over the 3 × 3 tile neighbourhood, threshold (min + max) / 2.
+ *   dilated over the 3 × 3 tile neighbourhood, threshold halfway between them
+ *   (in linear light with `midTable`, the detector's choice).
  *   Pixels whose local max − min < `minContrast` are "unknown". With
  *   `blockExtrema` (the detector's choice) a full tile's extrema are taken
  *   over its four 2 × 2 block means: that halves the noise in max − min, so
@@ -62,6 +63,45 @@ export function thresholdScratchSize(w: number, h: number): number {
 }
 
 /**
+ * Default `whiteMarginDn` of `linearMidpointTable`: ≈ 6σ of 4 DN sensor noise.
+ */
+export const MIN_WHITE_MARGIN_DN = 24;
+
+/**
+ * Threshold table for `adaptiveThreshold`, entry `lo · 256 + hi` (lo ≤ hi):
+ * the largest gray value v in [lo, hi] with `lut[v]` ≤ the midpoint of
+ * `lut[lo]` and `lut[hi]` ("v > entry" = brighter than halfway in linear
+ * light), but never closer to `hi` than `whiteMarginDn` unless the encoded
+ * midpoint lo + ⌊(hi − lo) / 2⌋ already is: in dark, low-contrast tiles the
+ * linear midpoint sits a few DN below paper, and noise on the white ring then
+ * broke it up (4 DN noise on ink 10 / paper 50 lost a quarter of the tags).
+ * `lut`: increasing, 256 entries (`linearizationLut`). With a linear LUT every
+ * entry is the encoded midpoint, AprilTag's threshold.
+ */
+export function linearMidpointTable(
+  lut: Float32Array,
+  whiteMarginDn = MIN_WHITE_MARGIN_DN,
+): Uint8Array {
+  const t = new Uint8Array(256 * 256);
+  for (let lo = 0; lo < 256; lo++) {
+    for (let hi = lo; hi < 256; hi++) {
+      // relative slack for the LUT's float32 rounding (an absolute one swamps steep gammas)
+      const m = ((lut[lo]! + lut[hi]!) / 2) * (1 + 1e-6);
+      let a = lo; // lut[a] ≤ m
+      let b = hi + 1; // first index known > m (or past hi)
+      while (b - a > 1) {
+        const c = (a + b) >> 1;
+        if (lut[c]! <= m) a = c;
+        else b = c;
+      }
+      const enc = lo + ((hi - lo) >> 1);
+      t[lo * 256 + hi] = Math.min(a, Math.max(enc, hi - whiteMarginDn));
+    }
+  }
+  return t;
+}
+
+/**
  * Labels every pixel of `img` (w × h, stride w) as BLACK, WHITE or UNKNOWN and
  * writes the labels into `out`, a padded (w + 2) × (h + 2) buffer whose 1-px
  * frame is set to WHITE. Pixel (x, y) goes to `out[(y + 1)·(w + 2) + x + 1]`.
@@ -69,6 +109,13 @@ export function thresholdScratchSize(w: number, h: number): number {
  * `blockExtrema`: full tiles take their extrema over 2 × 2 block means instead
  * of pixels (see the header); partial tiles at the right and bottom edges use
  * pixels.
+ *
+ * `midTable` (`linearMidpointTable`): each tile's threshold is the midpoint of
+ * its extrema in linear light (within a noise margin of white) instead of in
+ * encoded gray values. Without it the threshold sits at ≈ 20 % of the
+ * ink-to-paper range in linear light (gamma 2.2), so a blurred black border
+ * fades past it long before a white gap does: motion blur longer than about
+ * one cell broke tag borders.
  *
  * Written branch-free in the per-pixel loops (min/max and the label are bit
  * tricks on int32): with sensor noise, data-dependent branches mispredict and
@@ -82,6 +129,7 @@ export function adaptiveThreshold(
   out: Uint8Array,
   s: ThresholdScratch,
   blockExtrema = false,
+  midTable: Uint8Array | null = null,
 ): void {
   const tw = Math.ceil(w / TILE_PX);
   const th = Math.ceil(h / TILE_PX);
@@ -186,7 +234,7 @@ export function adaptiveThreshold(
       if (hi - lo < minContrast) {
         for (let x = x0; x < x1; x++) out[o + x] = UNKNOWN;
       } else {
-        const t = lo + ((hi - lo) >> 1);
+        const t = midTable ? midTable[(lo << 8) | hi]! : lo + ((hi - lo) >> 1);
         if (x1 - x0 === TILE_PX) {
           const i = row + x0;
           const p = o + x0;

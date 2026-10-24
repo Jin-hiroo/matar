@@ -19,7 +19,12 @@ const STATS: TrackerStats = {
   fps: 30,
   workerMs: 0,
   timingsMs: { gray: 0, detect: 0, pose: 0, focal: 0, total: 0 },
-  camera: { label: 'fake', lens: 'unknown', devices: [] },
+  camera: {
+    label: 'fake',
+    lens: 'unknown',
+    devices: [],
+    exposure: { state: 'off', timeMs: null, iso: null },
+  },
   focal: { fx: 0, source: 'provided', stdDevPct: null },
   worker: 'inline',
   frame: { path: 'gray', format: null, codedWidth: 0, codedHeight: 0, rotationDeg: 0 },

@@ -6,7 +6,7 @@
  *
  * `rear` is a best guess: Chrome's `InputDeviceInfo.getCapabilities().facingMode`
  * when available, else the label (`back` / `rear` / `environment`, Android's
- * `camera2 N, facing back`; English only, labels are localised on iOS).
+ * `camera N, facing back`; English only, labels are localised on iOS).
  *
  * `toCameraList` is pure; `listCameras` reads `navigator` inside the function.
  */
