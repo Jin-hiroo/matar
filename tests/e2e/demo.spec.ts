@@ -183,6 +183,44 @@ test('the report finds the fake camera’s focal length from a wrong prior (?fov
   expect(history![1]).toMatch(/ s camera /);
   expect(history![1]).toMatch(/ s f 879\.\d px \(prior\)/);
   console.log(`e2e history: ${history![0]}`);
+  // one frame's corners, every tag as `id: TL TR BR BL` inside the 640 × 480 frame
+  const corners =
+    /corners {2}-?[\d.]+ s, outer corners \d+ px\/s, tilt \d+°, 640×480 fx 879\.\d fy 879\.\d cx [\d.]+ cy [\d.]+; id: TL TR BR BL px \(\* not used\) · (.*)/.exec(
+      report,
+    );
+  expect(corners, report).not.toBeNull();
+  const tags = corners![1]!.split(' · ');
+  expect(tags.length).toBeGreaterThanOrEqual(6);
+  for (const tag of tags) {
+    const m = /^\d+\*?: (.*)$/.exec(tag);
+    expect(m, tag).not.toBeNull();
+    const pts = m![1]!.split(' ').map((p) => p.split(',').map(Number));
+    expect(pts.length, tag).toBe(4);
+    for (const [u, v] of pts) {
+      expect(u! >= -0.5 && u! <= 639.5 && v! >= -0.5 && v! <= 479.5, tag).toBe(true);
+    }
+  }
+  console.log(`e2e ${corners![0]}`);
+  // rendered with the detector's tone curve (gamma 2.2): the tags come out at
+  // their printed size, against the board's spacing
+  const edges =
+    /edges {4}tags ([+−][\d.]+) px bigger than printed vs the fit \(10–90 %: [+−][\d.]+ to [+−][\d.]+ over (\d+) frames; .*\), \d+ % of tags smaller; edgeGamma default \(\?edgeGamma=\)/.exec(
+      report,
+    );
+  expect(edges, report).not.toBeNull();
+  expect(Math.abs(Number(edges![1]!.replace('−', '-')))).toBeLessThan(0.2);
+  expect(Number(edges![2])).toBeGreaterThan(20);
+  console.log(`e2e ${edges![0]}`);
+  // seen from the bottom edge of the page, so the paper recedes towards the top
+  // of the image; the fake camera's lens centre is the image centre
+  const centre =
+    /centre {3}one-frame f by the image edge the paper recedes towards, since Start: top (\d+) \((\d+)\), bottom - \(0\), left - \(0\), right - \(0\); lens centre not fitted/.exec(
+      report,
+    );
+  expect(centre, report).not.toBeNull();
+  expect(Math.abs(Number(centre![1]) / 474.4 - 1), report).toBeLessThan(0.02);
+  expect(Number(centre![2])).toBeGreaterThan(20);
+  console.log(`e2e ${centre![0]}`);
   expect(errors).toEqual([]);
   checkPrivacy(requests, new URL(baseURL!).origin);
 });
@@ -302,7 +340,7 @@ test('?exposure= reports what became of it and keeps tracking', async ({
   await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseURL });
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
-  const requests = await startDemo(page, '&exposure=4');
+  const requests = await startDemo(page, '&exposure=4&edgeGamma=2.4');
   const state = await waitForEvents(page, 20);
   expect(state.events.slice(-10).some((e) => e.pose)).toBe(true);
   const copyReport = async () => {
@@ -321,7 +359,8 @@ test('?exposure= reports what became of it and keeps tracking', async ({
     )
     .toBe('no manual exposure with ISO control here');
   const report = await copyReport();
-  expect(report).toContain('url ?debug&exposure=4');
+  expect(report).toContain('url ?debug&exposure=4&edgeGamma=2.4');
+  expect(report).toMatch(/^edges {4}tags .*; edgeGamma 2\.4 \(\?edgeGamma=\)$/m);
   // the timeline has the wait and the outcome, timed from the first frame
   expect(report).toMatch(/history .*\d s exposure pending .* · [\d.]+ s exposure unsupported/);
   expect(errors).toEqual([]);

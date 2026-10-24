@@ -57,6 +57,8 @@ const poseKind = params.get('pose') === 'smoothed' ? 'smoothed' : 'raw';
 const fovDeg = Number(params.get('fov'));
 /** `?exposure=`: `camera.maxExposureMs` */
 const exposureReqMs = Number(params.get('exposure'));
+/** `?edgeGamma=`: `detector.edgeGamma`, the camera tone curve the detector assumes at tag edges */
+const edgeGamma = Number(params.get('edgeGamma'));
 /** what became of it (the newest pose event's `stats.camera.exposure`), for the report */
 let exposureStats: CameraExposure | null = null;
 
@@ -158,6 +160,7 @@ async function start(): Promise<void> {
       ...restore?.camera,
       ...(exposureReqMs > 0 ? { maxExposureMs: exposureReqMs } : {}),
     },
+    ...(edgeGamma > 0 ? { detector: { edgeGamma } } : {}),
   });
   tracker.addEventListener('intrinsics', (e) => {
     const { intrinsics, source } = e as IntrinsicsEvent;
@@ -458,6 +461,7 @@ function reportContext(video: HTMLVideoElement): ReportContext {
     bg,
     pose: poseKind,
     query: location.search,
+    edgeGamma: edgeGamma > 0 ? edgeGamma : null,
     calibration: calibrationNote + firstEstimateNote,
     history: historyText(),
     device: navigator.userAgent,
