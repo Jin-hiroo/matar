@@ -14,19 +14,35 @@
  * looking straight down (only the height comes out wrong); tilted, it leaves a
  * reprojection error of a few px all over the image and puts content off.
  * The `calib` line counts the frames that pass the self-calibration's keyframe
- * rules (src/pose/focal.ts), to show which one holds it back.
+ * rules (src/pose/focal.ts), to show which one holds it back, and splits their
+ * homography fit and one-frame focal length by how fast the board moves: a
+ * camera that reads its rows out one after another skews a moving board
+ * (rolling shutter), which a homography absorbs and the focal length doesn't.
+ * The `history` line (from the page) has the camera, focal-length and
+ * exposure changes since the first frame.
  */
 import { boardTagCornersMm } from '../src/board/index.js';
 import { homographyDlt } from '../src/math/homography.js';
-import { FOCAL_DEFAULTS, pxPerMm } from '../src/pose/focal.js';
+import { FOCAL_DEFAULTS, focalConstraints, pxPerMm } from '../src/pose/focal.js';
 import { estimatePose } from '../src/pose/index.js';
-import type { Board, CameraIntrinsics, Mat4, PoseEvent, TagDetection, Vec2 } from '../src/types.js';
+import type {
+  Board,
+  CameraIntrinsics,
+  Mat3,
+  Mat4,
+  PoseEvent,
+  TagDetection,
+  Vec2,
+} from '../src/types.js';
 
 const WINDOW_MS = 5000;
 /** focal fit: frames with at least this many used tags, this tilt (°), at most this many frames */
 const FIT_MIN_TAGS = 6;
 const FIT_MIN_TILT_DEG = 15;
 const FIT_FRAMES = 12;
+/** `calib` split: board speeds in the image, px/s (slow below the first, fast from the second) */
+const SLOW_PX_S = 100;
+const FAST_PX_S = 300;
 
 interface PoseSample {
   at: number;
@@ -49,6 +65,8 @@ interface PoseSample {
   tiltDeg: number | null;
   /** board origin in the image, px */
   originPx: Vec2 | null;
+  /** its speed since the previous tracked frame, if that is ≤ 100 ms older, px/s */
+  speedPxS: number | null;
   /** used corners' squared errors and counts by image radius (centre, middle, edge thirds of the half-diagonal), px² */
   ringSs: [number, number, number];
   ringN: [number, number, number];
@@ -56,8 +74,8 @@ interface PoseSample {
   edgeRadial: number;
   /** a tilted frame's used tags and intrinsics, for the focal fit */
   fit: { dets: TagDetection[]; k: CameraIntrinsics } | null;
-  /** with enough tags and tilt for a keyframe: its homography fit (px, and mm on the paper) and viewing direction (board frame) */
-  kf: { rmsPx: number; rmsMm: number; dir: [number, number, number] } | null;
+  /** with enough tags and tilt for a keyframe: its homography fit (px, and mm on the paper), the focal length it gives alone (px) and its viewing direction (board frame) */
+  kf: { rmsPx: number; rmsMm: number; f: number | null; dir: [number, number, number] } | null;
 }
 
 interface RenderSample {
@@ -83,6 +101,8 @@ export interface ReportContext {
   exposure: string;
   /** exposure time, ms, if reported */
   exposureMs: number | null;
+  /** camera, focal-length and exposure changes since the first frame, '' if none */
+  history: string;
 }
 
 export class Report {
@@ -145,6 +165,13 @@ export class Report {
         ? this.keyframe(m, used, e.intrinsics)
         : null;
     if (kf && passesFit(kf)) addDirection(this.calibDirs, kf.dir);
+    const originPx = m ? project(m, e.intrinsics, 0, 0, 0) : null;
+    const prev = this.poses.at(-1);
+    const dt = prev ? e.timestampMs - prev.frameT : 0;
+    const speedPxS =
+      originPx && prev?.originPx && dt > 0 && dt <= 100
+        ? (1000 * Math.hypot(originPx[0] - prev.originPx[0], originPx[1] - prev.originPx[1])) / dt
+        : null;
     push(this.poses, at, {
       at,
       frameT: e.timestampMs,
@@ -160,7 +187,8 @@ export class Report {
       errMm: mmN ? Math.sqrt(mm2 / mmN) : null,
       heightMm: m ? m[13]! : null, // `!`: a Mat4 has 16 entries
       tiltDeg,
-      originPx: m ? project(m, e.intrinsics, 0, 0, 0) : null,
+      originPx,
+      speedPxS,
       ringSs,
       ringN,
       edgeRadial,
@@ -197,7 +225,7 @@ export class Report {
     }
     const dir: [number, number, number] = [-m[8]!, -m[9]!, -m[10]!]; // `!`: 16 entries; unit (rotation column)
     const rmsPx = Math.sqrt(e2 / n);
-    return { rmsPx, rmsMm: rmsPx / pxPerMm(src, dst, n), dir };
+    return { rmsPx, rmsMm: rmsPx / pxPerMm(src, dst, n), f: oneFrameF(h, k), dir };
   }
 
   /** The `calib` line: frames that pass each keyframe rule of the self-calibration, in this window. */
@@ -207,9 +235,20 @@ export class Report {
     const good = cand.filter((p) => passesFit(p.kf!)); // `!`: filtered
     const dirs: [number, number, number][] = [];
     for (const p of good) addDirection(dirs, p.kf!.dir); // `!`: filtered
+    // median fit and one-frame f of the frames in a band of board speed
+    const band = (label: string, inBand: (v: number) => boolean) => {
+      const ps = cand.filter((p) => p.speedPxS !== null && inBand(p.speedPxS));
+      if (!ps.length) return `${label} -`;
+      const fs = nums(ps.map((p) => p.kf!.f)); // `!`: filtered
+      return `${label} ${median(ps.map((p) => p.kf!.rmsPx)).toFixed(1)} px, f ${fs.length ? median(fs).toFixed(0) : '-'} (${ps.length})`;
+    };
     return `${cand.length} frames with ≥ ${o.minTags} tags at ≥ ${o.minTiltDeg}° tilt (homography fit ${mp(
       cand.map((p) => p.kf!.rmsPx), // `!`: filtered
-    )} px, ${mp(cand.map((p) => p.kf!.rmsMm))} mm on the paper), ${good.length} of them under ${o.maxFitRmsPx} px or ${o.maxFitRmsMm} mm, from ${dirs.length} directions ≥ ${o.minSeparationDeg}° apart (${this.calibDirs.length} since Start; it needs ${o.minKeyframes})`;
+    )} px, ${mp(cand.map((p) => p.kf!.rmsMm))} mm on the paper), ${good.length} of them under ${o.maxFitRmsPx} px or ${o.maxFitRmsMm} mm, from ${dirs.length} directions ≥ ${o.minSeparationDeg}° apart (${this.calibDirs.length} since Start; it needs ${o.minKeyframes}); fit and one-frame f by board speed: ${[
+      band(`< ${SLOW_PX_S} px/s`, (v) => v < SLOW_PX_S),
+      band(`${SLOW_PX_S}–${FAST_PX_S}`, (v) => v >= SLOW_PX_S && v < FAST_PX_S),
+      band(`≥ ${FAST_PX_S}`, (v) => v >= FAST_PX_S),
+    ].join(', ')}`;
   }
 
   addRender(sample: RenderSample): void {
@@ -258,18 +297,7 @@ export class Report {
     const tracked = poses.filter((p) => p.tracked);
     const lost = poses.filter((p) => !p.tracked);
     const intervals = poses.slice(1).map((p, i) => p.frameT - poses[i]!.frameT); // `!`: i < length − 1
-    // image speed of the board origin between tracked frames ≤ 100 ms apart, px/s
-    const speeds: number[] = [];
-    for (let i = 1; i < tracked.length; i++) {
-      const a = tracked[i - 1]!; // `!`: i ≥ 1
-      const b = tracked[i]!;
-      const dt = b.frameT - a.frameT;
-      if (a.originPx && b.originPx && dt > 0 && dt <= 100) {
-        speeds.push(
-          (1000 * Math.hypot(b.originPx[0] - a.originPx[0], b.originPx[1] - a.originPx[1])) / dt,
-        );
-      }
-    }
+    const speeds = nums(tracked.map((p) => p.speedPxS));
     const blur =
       ctx.exposureMs === null || !speeds.length
         ? ''
@@ -350,6 +378,7 @@ export class Report {
         `calib    ${this.calibLine(tracked)}`,
       );
     }
+    if (ctx.history) lines.push(`history  ${ctx.history}`);
     lines.push(
       '(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)',
     );
@@ -421,6 +450,21 @@ function project(m: Mat4, k: CameraIntrinsics, x: number, y: number, z: number):
   const cz = m[8]! * dx + m[9]! * dy + m[10]! * dz;
   if (!(cz < 0)) return null;
   return [k.cx - (k.fx * cx) / cz, k.cy + (k.fy * cy) / cz];
+}
+
+/**
+ * The focal length one frame's homography gives alone, as the self-calibration
+ * computes it per keyframe (`focalConstraints`), px, or null. `h` (row-major)
+ * maps board (x, z) mm to pixels centred on (cx, cy).
+ */
+function oneFrameF(h: Mat3, k: CameraIntrinsics): number | null {
+  const L = Math.max(k.width, k.height);
+  const hL = Float64Array.from(h, (v, i) => (i < 6 ? v / L : v)); // to centred pixels / L
+  const c = new Float64Array(4);
+  if (!focalConstraints(hL, 1, c)) return null;
+  // `!` below: 4 entries
+  const w = -(c[0]! * c[1]! + c[2]! * c[3]!) / (c[0]! ** 2 + c[2]! ** 2);
+  return w > 0 && Number.isFinite(w) ? L / Math.sqrt(w) : null;
 }
 
 /** A keyframe's homography fit passes the self-calibration's rule (px or mm). */

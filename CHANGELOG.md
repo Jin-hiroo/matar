@@ -67,6 +67,9 @@ paper and the video lagged behind the camera.
   length was in use (on the Android test phone for 25.7 s after a jump from the
   prior). The worker posted the estimate before the result of the frame that made
   it, whose source was from before; it now posts the result first.
+- Demo: the saved calibration is used after a one-time camera grant too. Camera
+  names aren't listed before Start then, so the demo opens the back camera briefly to
+  get the permission prompt and looks the saved camera up again.
 - Android: the lens rule (use the lowest-numbered back camera) works with current
   Chrome's labels, `camera N, facing back`. It only matched the older `camera2 N, …`,
   so on Chrome 155 the tracker kept whichever back camera `facingMode` opened (on the
@@ -120,7 +123,11 @@ paper and the video lagged behind the camera.
   calibration isn't redone on every load; `?fresh` forgets it. The report shows the
   URL options, where the focal length came from, (`calib`) how many frames pass
   each keyframe rule of the self-calibration (in the window and since Start), the
-  time to the first estimate, and the `err` in mm on the paper.
+  time to the first estimate, and the `err` in mm on the paper. `calib` also splits
+  the homography fit and the one-frame focal length by board speed (a rolling
+  shutter skews a moving board); a `history` line has the camera, focal-length and
+  exposure changes timed from the first frame; the exposure line adds zoom, focus
+  distance and resize mode where reported.
 - `TrackerOptions.camera.maxExposureMs` (opt-in): a shorter exposure against motion
   blur. About 1 s after the camera opens, an automatic exposure longer than this is
   set to it with the ISO raised by the same factor (Image Capture manual exposure,

@@ -77,6 +77,12 @@ let calibrationNote = 'nothing saved used';
 let firstUsableMs: number | null = null;
 /** how long after it the first estimate came, once it has */
 let firstEstimateNote = '';
+/**
+ * For the report's `history` line: camera, focal-length and exposure changes,
+ * ms after the first analysed frame (`historyT0`, performance.now() ms).
+ */
+const timeline: { at: number; text: string }[] = [];
+let historyT0: number | null = null;
 
 const board = demoBoard();
 const hud = document.getElementById('hud') as HTMLPreElement;
@@ -125,14 +131,23 @@ function printBoard(): void {
 
 async function start(): Promise<void> {
   // the saved camera's deviceId now; labels are listed before getUserMedia only
-  // once camera permission was granted for good
-  const deviceId = saved ? await deviceIdFor(saved.label) : null;
-  const restore = saved && deviceId ? { intrinsics: saved.intrinsics, camera: { deviceId } } : null;
-  if (saved) {
-    calibrationNote = restore
-      ? `started from the one saved for ${saved.label} (${saved.intrinsics.fx.toFixed(1)} px)`
-      : `the one saved for ${saved.label} not used: no camera of that name listed before Start`;
+  // while camera permission is granted, which a one-time grant isn't on the
+  // next load: then ask for it with a brief open of the back camera and look again
+  let found = saved ? await deviceIdFor(saved.label) : null;
+  let asked = false;
+  if (saved && found?.labelled === false) {
+    asked = await askCameraPermission();
+    if (asked) found = await deviceIdFor(saved.label);
   }
+  const deviceId = found?.deviceId ?? null;
+  const restore = saved && deviceId ? { intrinsics: saved.intrinsics, camera: { deviceId } } : null;
+  // kept when a measurement is saved: why this run started where it did
+  const startNote = saved
+    ? restore
+      ? `started from the one saved for ${saved.label} (${saved.intrinsics.fx.toFixed(1)} px${asked ? ', camera names listed after a permission prompt' : ''})`
+      : `the one saved for ${saved.label} not used: ${found?.labelled === false ? 'no camera names listed before Start' : 'no camera of that name listed before Start'}`
+    : `nothing saved used${params.has('fresh') ? ' (?fresh)' : fovDeg ? ' (?fov=)' : ''}`;
+  calibrationNote = startNote;
   const tracker = createTracker({
     board,
     worker: inline ? false : undefined,
@@ -152,7 +167,7 @@ async function start(): Promise<void> {
       firstEstimateNote = `; first estimate ${((performance.now() - firstUsableMs) / 1000).toFixed(1)} s after the first frame it could use`;
     }
     saveCalibration({ label, intrinsics });
-    calibrationNote = `${restore ? 'started from a saved one, ' : ''}measured one saved for ${label}`;
+    calibrationNote = `${startNote}; measured one saved for ${label}`;
   });
 
   const renderer = new WebGLRenderer({ antialias: true });
@@ -249,9 +264,31 @@ async function start(): Promise<void> {
   });
   reportBox.addEventListener('blur', () => (reportBox.style.display = 'none'));
 
+  let trackId: string | null = null;
+  let focalKey = '';
   tracker.addEventListener('pose', (e) => {
     last = e;
-    exposureStats = e.stats.camera.exposure;
+    historyT0 ??= performance.now();
+    const track = (video.srcObject as MediaStream | null)?.getVideoTracks()[0];
+    if (track && track.id !== trackId) {
+      trackId = track.id;
+      logEvent(`camera ${track.label || '(no label)'}`);
+    }
+    const exposure = e.stats.camera.exposure;
+    if (exposureReqMs > 0 && exposure.state !== exposureStats?.state) {
+      logEvent(
+        `exposure ${exposure.state}${exposure.timeMs === null ? '' : ` ${exposure.timeMs.toFixed(1)} ms`}${exposure.iso === null ? '' : ` ISO ${exposure.iso}`}`,
+      );
+    }
+    exposureStats = exposure;
+    // the focal length in use: the start value, then each change (also a reset)
+    const fc = e.stats.focal;
+    if (`${fc.fx} ${fc.source}` !== focalKey) {
+      focalKey = `${fc.fx} ${fc.source}`;
+      logEvent(
+        `f ${fc.fx.toFixed(1)} px (${fc.source}${fc.stdDevPct === null ? '' : ` ±${fc.stdDevPct.toFixed(2)} %`})`,
+      );
+    }
     report.addPose(e, performance.now());
     const m = e.pose?.boardFromCamera;
     if (
@@ -322,6 +359,24 @@ async function start(): Promise<void> {
   }
 }
 
+/** Adds a `history` entry, timed from the first analysed frame (0 before it). */
+function logEvent(text: string): void {
+  timeline.push({ at: historyT0 === null ? 0 : performance.now() - historyT0, text });
+}
+
+/** The `history` line: the first entries and the last few, with the time of each. */
+function historyText(): string {
+  const shown = (h: (typeof timeline)[number]) => `${(h.at / 1000).toFixed(1)} s ${h.text}`;
+  const head = 12;
+  const tail = 4;
+  if (timeline.length <= head + tail) return timeline.map(shown).join(' · ');
+  return [
+    ...timeline.slice(0, head).map(shown),
+    `… ${timeline.length - head - tail} more …`,
+    ...timeline.slice(-tail).map(shown),
+  ].join(' · ');
+}
+
 function loadCalibration(): SavedCalibration | null {
   try {
     const v = JSON.parse(localStorage.getItem(SAVED_KEY) ?? 'null') as SavedCalibration | null;
@@ -337,16 +392,37 @@ function loadCalibration(): SavedCalibration | null {
   }
 }
 
-/** The deviceId of the `videoinput` labelled `label`, or null (not listed, or no labels yet). */
-async function deviceIdFor(label: string): Promise<string | null> {
+/**
+ * The deviceId of the `videoinput` labelled `label` (null if none) and whether
+ * any camera had a label at all (none before camera permission); null if the
+ * cameras can't be listed.
+ */
+async function deviceIdFor(
+  label: string,
+): Promise<{ deviceId: string | null; labelled: boolean } | null> {
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    return (
-      devices.find((d) => d.kind === 'videoinput' && d.label === label && d.deviceId)?.deviceId ??
-      null
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter(
+      (d) => d.kind === 'videoinput',
     );
+    return {
+      deviceId: cams.find((d) => d.label === label && d.deviceId)?.deviceId ?? null,
+      labelled: cams.some((d) => d.label !== ''),
+    };
   } catch {
     return null;
+  }
+}
+
+/** Opens and closes the back camera so the browser asks for permission; true if granted. */
+async function askCameraPermission(): Promise<boolean> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+    });
+    for (const t of stream.getTracks()) t.stop();
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -383,6 +459,7 @@ function reportContext(video: HTMLVideoElement): ReportContext {
     pose: poseKind,
     query: location.search,
     calibration: calibrationNote + firstEstimateNote,
+    history: historyText(),
     device: navigator.userAgent,
     screen: `${s.width}×${s.height} css px, dpr ${window.devicePixelRatio}, ${s.orientation?.type ?? '?'}`,
     ...exposureInfo(video),
@@ -396,6 +473,9 @@ interface ExposureSettings {
   exposureTime?: number;
   iso?: number;
   focusMode?: string;
+  focusDistance?: number;
+  zoom?: number;
+  resizeMode?: string;
 }
 interface ExposureCapabilities {
   exposureMode?: string[];
@@ -436,6 +516,9 @@ function exposureInfo(video: HTMLVideoElement): Pick<ReportContext, 'exposure' |
     st.iso === undefined ? null : `ISO ${st.iso}`,
     st.frameRate === undefined ? null : `${st.frameRate.toFixed(0)} fps`,
     st.focusMode ? `focus ${st.focusMode}` : null,
+    st.focusDistance === undefined ? null : `focus distance ${st.focusDistance}`,
+    st.zoom === undefined ? null : `zoom ${st.zoom}`,
+    st.resizeMode ? `resize ${st.resizeMode}` : null,
   ].filter((x) => x !== null);
   const range = (r: { min?: number; max?: number } | undefined, scale: number, digits: number) =>
     r && r.min !== undefined && r.max !== undefined

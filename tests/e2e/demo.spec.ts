@@ -168,7 +168,21 @@ test('the report finds the fake camera’s focal length from a wrong prior (?fov
   expect(Number(calib![2])).toBe(Number(calib![1]));
   expect(Number(calib![3])).toBeGreaterThanOrEqual(1);
   expect(Number(calib![4])).toBeGreaterThanOrEqual(Number(calib![3]));
-  console.log(`e2e calib: ${calib![0]}`);
+  console.log(`e2e ${/calib {4}.*/.exec(report)![0]}`); // `!`: matched above
+  // split by board speed: noise-free frames give the truth alone, at any speed
+  const bands = [
+    ...report.matchAll(/(?:< 100 px\/s|100–300|≥ 300) ([\d.]+) px, f (\d+) \((\d+)\)/g),
+  ];
+  expect(bands.length, report).toBeGreaterThanOrEqual(1);
+  for (const b of bands) expect(Math.abs(Number(b[2]) / 474.4 - 1), b[0]).toBeLessThan(0.02);
+  // the timeline: the camera and the 40° prior at the first frame (the truth is
+  // outside the self-calibration's window from it, so no estimate follows)
+  const history = /history {2}(.*)/.exec(report);
+  expect(history, report).not.toBeNull();
+  expect(history![1]).toMatch(/^0\.0 s (camera|f )/);
+  expect(history![1]).toMatch(/ s camera /);
+  expect(history![1]).toMatch(/ s f 879\.\d px \(prior\)/);
+  console.log(`e2e history: ${history![0]}`);
   expect(errors).toEqual([]);
   checkPrivacy(requests, new URL(baseURL!).origin);
 });
@@ -195,10 +209,15 @@ test('a measured focal length is saved and the next Start begins from it; ?fresh
   await expect(page.locator('#hud')).toContainText('(estimated', { timeout: 20_000 });
   expect(Math.abs((await savedFx()) / 474.4 - 1)).toBeLessThan(0.02);
   // the 60° prior is 17 % long: the jump rule replaces it from the first usable frames
+  const measured = await copyReport();
   const firstEstimate = /first estimate ([\d.]+) s after the first frame it could use/.exec(
-    await copyReport(),
+    measured,
   );
   expect(firstEstimate).not.toBeNull();
+  // the timeline has the prior and the estimates that replaced it
+  expect(measured).toMatch(
+    /history .*0\.0 s f 554\.\d px \(prior\) · .*s f 4\d\d\.\d px \(estimated/,
+  );
   expect(Number(firstEstimate![1])).toBeLessThan(2);
   console.log(`e2e ${firstEstimate![0]}`);
 
@@ -229,6 +248,52 @@ test('a measured focal length is saved and the next Start begins from it; ?fresh
   checkPrivacy(requests, new URL(baseURL!).origin);
 });
 
+test('the saved calibration is used when camera names are listed only after a permission prompt', async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: baseURL });
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const requests = await startDemo(page, '&fov=60');
+  await expect(page.locator('#hud')).toContainText('(estimated', { timeout: 20_000 });
+  // the next load as after a one-time grant: no names (or IDs) until getUserMedia
+  await page.addInitScript(() => {
+    const md = navigator.mediaDevices;
+    const enumerate = md.enumerateDevices.bind(md);
+    const open = md.getUserMedia.bind(md);
+    let granted = false;
+    md.getUserMedia = (c) =>
+      open(c).then((s) => {
+        granted = true;
+        return s;
+      });
+    md.enumerateDevices = () =>
+      enumerate().then((ds) =>
+        granted
+          ? ds
+          : ds.map((d) => ({ ...d.toJSON(), label: '', deviceId: '' }) as MediaDeviceInfo),
+      );
+  });
+  let fx = 0;
+  requests.push(
+    ...(await startDemo(page, '', async () => {
+      const saved = await page.evaluate(() => localStorage.getItem('matar-demo-calibration'));
+      fx = (JSON.parse(saved!) as { intrinsics: { fx: number } }).intrinsics.fx;
+    })),
+  );
+  const state = await waitForEvents(page, 10);
+  expect(state.events[0]!.fx).toBeCloseTo(fx, 6);
+  await page.getByRole('button', { name: 'Copy report' }).click();
+  await expect(page.getByRole('button', { name: 'Copied' })).toBeVisible();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(
+    /started from the one saved for .* px, camera names listed after a permission prompt\)/,
+  );
+  expect(errors).toEqual([]);
+  checkPrivacy(requests, new URL(baseURL!).origin);
+});
+
 test('?exposure= reports what became of it and keeps tracking', async ({
   page,
   context,
@@ -255,7 +320,10 @@ test('?exposure= reports what became of it and keeps tracking', async ({
       },
     )
     .toBe('no manual exposure with ISO control here');
-  expect(await copyReport()).toContain('url ?debug&exposure=4');
+  const report = await copyReport();
+  expect(report).toContain('url ?debug&exposure=4');
+  // the timeline has the wait and the outcome, timed from the first frame
+  expect(report).toMatch(/history .*\d s exposure pending .* · [\d.]+ s exposure unsupported/);
   expect(errors).toEqual([]);
   checkPrivacy(requests, new URL(baseURL!).origin);
 });
