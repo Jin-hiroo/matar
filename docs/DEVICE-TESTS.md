@@ -856,3 +856,206 @@ fit      1144 px best (1119–1151 over 12 tilted frames; long-side FOV 58.4°, 
 calib    115 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 1.0 px, 0.4 / 0.5 mm on the paper), 115 of them under 1 px or 1 mm, from 6 directions ≥ 10° apart (17 since Start; it needs 3)
 (median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
 ```
+
+### 2026-10-24, Android, Chrome 155: `camera.maxExposureMs` in the library (Vercel)
+
+`?exposure=4`, now passed to the library as `camera.maxExposureMs`: `exposure
+4.0 ms, none, ISO 624 … (camera.maxExposureMs): set`, so the tracker
+shortened the exposure itself and the read-back confirmed it. Shaking fast
+(312 / 628 px/s, ≈ 1 / 3 px of blur): 149 / 149 frames with a pose.
+
+The accuracy was the worst of any calibrated run: err 2.49 / 2.91 px (1.24
+mm on the paper), against 0.81 px (0.54 mm) moving round the board at the
+same speed (306 / 609 px/s) on 2026-10-23. Compared with that run:
+
+- the homography fit, which doesn't depend on f, was 2.0 / 2.4 px (1.1 mm),
+  against 0.6–0.8 px in every run at 400–670 mm: the corners didn't fit any
+  view of a flat board;
+- 11 / 13 of the 16 tags found were used (16 / 16 or 13 / 13 before);
+- the focal length came out 1298.1 px (estimated ±0.14 %, 5 directions),
+  where nine runs measured 1131–1146 px; the demo's `fit` gave 1391 px
+  (1153–1825);
+- it started from the 68° prior, not the saved 1130.9 px. The report didn't
+  say why: the reason was overwritten when the new value was saved.
+  1298.1 px is now the saved value for camera 0.
+
+A simulation on the demo board's layout (507 mm up, 29–35° tilt, 5
+directions, f = 1131 px) separates two suspects:
+
+- **Curled paper:** a 2 px fit needs ≈ 7 mm of lift at the edges, which moves f
+  by only +2–3 %.
+- **Rolling shutter:** with a 30 ms readout at 600–1200 px/s, the one-frame f
+  moves by ±10–20 % depending on the direction, but the fit stays under 0.8 px.
+
+Neither explains both numbers alone. A rolling-shutter bias changes with the
+direction, and this run's keyframes agreed within ±0.14 %, which speaks
+against motion. Not ruled out: a change in the camera's image scale (a crop,
+for example stabilisation), which would change f alike for every direction.
+
+The report now adds:
+
+- **`calib`:** the homography fit and the one-frame f, split by board speed;
+- **`history`:** camera, focal-length and exposure changes, timed from the first
+  frame;
+- **exposure line:** zoom, focus distance and resize mode, where the browser
+  reports them;
+- **calibration note:** why a saved calibration wasn't used, kept after a new
+  one is saved.
+
+Retest, with the paper flat on a table: still, moving slowly, then shaking,
+one report each.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 2, facing back | camera 0, facing back | camera 3, facing front | camera 1, facing front
+fps      camera 30.0, analysed 29.8, with a pose 149/149
+interval 33 / 50 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.3 / 0.5 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   15.9 / 25.4 ms
+stages   gray 0.4 / 0.5  detect 14.2 / 23.3  pose 1.1 / 1.6  focal 0.0 / 0.1 ms
+bg age   18 / 35 ms at render
+pose age 18 / 35 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.5 ms
+tags     16 / 16 found, 11 / 13 used, err 2.49 / 2.91 px (1.24 / 1.87 mm on the paper)
+err by r centre 2.62 px (3484 corners), middle 2.41 (3285), edge 4.29 (11); edge corners +3.78 px radially (+ = further out than the fit)
+view     507 / 662 mm above the paper, tilt 29 / 32° from straight down
+motion   board centre 312 / 628 px/s in the image (≈ 1 / 3 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1298.1 px (estimated ±0.14 %); measured one saved for camera 0, facing back; first estimate 1.5 s after the first frame it could use
+fit      1391 px best (1153–1825 over 12 tilted frames; long-side FOV 49.4°, ?fov=49.4), err 2.15 px with it, 2.46 px with the f in use
+calib    121 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 2.0 / 2.4 px, 1.1 / 1.4 mm on the paper), 49 of them under 1 px or 1 mm, from 5 directions ≥ 10° apart (5 since Start; it needs 3)
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+The retest, shaking fast with `?exposure=4` set again: 648 mm up at 34° tilt,
+404 / 1126 px/s (≈ 2 / 5 px of blur). 146 / 149 frames had a pose; the 3 lost
+were single frames with no tag found. All 16 tags were used, err 1.13 / 1.79
+px (0.78 mm on the paper), homography fit 1.0 / 1.7 px. By board speed (frames
+with ≥ 6 tags at ≥ 20° tilt):
+
+| board speed  | frames | homography fit px | one-frame f px |
+| ------------ | ------ | ----------------- | -------------- |
+| < 100 px/s   | 23     | 0.9               | 1105           |
+| 100–300 px/s | 36     | 0.9               | 1103           |
+| ≥ 300 px/s   | 76     | 1.2               | 1112           |
+
+Shaking cost 0.3 px of fit and moved f by under 1 %, so the rolling shutter
+doesn't explain the 2.0 px fit and the 1298 px of the run before. That run's
+paper wasn't recorded. The camera reported zoom 1 and resize none: no crop in
+this run.
+
+It self-calibrated from the prior to 1096.3 px (estimated ±0.34 %; `fit` 1113
+px, 1066–1159), 2–3 % under the 1131–1146 px of earlier runs. The error was
+1.05 px with it and 1.02 px with the `fit`'s value, so here the difference
+cost little.
+
+The `history` line:
+
+- **0.2 s after the first frame:** the jump rule left the 68° prior (948.8 →
+  1120.9 px). The fake camera in the e2e test takes 0.3 s.
+- **1.3 s:** the exposure was set.
+- **25.9 s:** the estimate was accepted (3 directions), once the phone was moved
+  round the board.
+- **40.6 s:** refined to 1096.3 px.
+
+It also showed two faults:
+
+- **The wrong source was reported.** From 0.2 s to 25.9 s it said
+  `1120.9 px (prior)`: `stats.focal` reported the prior while the tracker used
+  the estimate. The worker posted the estimate before the result of the frame
+  that made it, and that result's earlier source overwrote it. Fixed: the
+  worker now posts the result first (CHANGELOG).
+- **The saved calibration wasn't used.** The saved 1298.1 px was skipped with
+  `no camera of that name listed before Start`. Chrome lists camera names before
+  `getUserMedia` only while camera permission is granted, and a one-time
+  grant ends with the page. That is probably also why the run before started
+  from the prior (its reason was overwritten). When no names are listed, the
+  demo now opens the back camera briefly to get the permission prompt, then
+  looks the saved camera up again.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 2, facing back | camera 0, facing back | camera 3, facing front | camera 1, facing front
+fps      camera 29.7, analysed 29.8, with a pose 146/149
+interval 33 / 34 ms between analysed frames
+no pose  3 frames in 3 runs (longest 1), tags found on them 0 / 0
+grab     0.3 / 0.4 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   18.8 / 25.9 ms
+stages   gray 0.3 / 0.5  detect 17.7 / 24.7  pose 0.7 / 1.1  focal 0.1 / 0.1 ms
+bg age   18 / 35 ms at render
+pose age 18 / 35 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.5 ms
+tags     16 / 16 found, 16 / 16 used, err 1.13 / 1.79 px (0.78 / 1.17 mm on the paper)
+err by r centre 1.16 px (4436 corners), middle 1.25 (3478), edge 1.70 (174); edge corners −1.02 px radially (+ = further out than the fit)
+view     648 / 757 mm above the paper, tilt 34 / 39° from straight down
+motion   board centre 404 / 1126 px/s in the image (≈ 2 / 5 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1096.3 px (estimated ±0.34 %); the one saved for camera 0, facing back not used: no camera of that name listed before Start; measured one saved for camera 0, facing back; first estimate 0.2 s after the first frame it could use
+fit      1113 px best (1066–1159 over 12 tilted frames; long-side FOV 59.8°, ?fov=59.8), err 1.02 px with it, 1.05 px with the f in use
+calib    138 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 1.0 / 1.7 px, 0.7 / 1.1 mm on the paper), 113 of them under 1 px or 1 mm, from 4 directions ≥ 10° apart (10 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.9 px, f 1105 (23), 100–300 0.9 px, f 1103 (36), ≥ 300 1.2 px, f 1112 (76)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 948.8 px (prior) · 0.2 s f 1120.9 px (prior) · 1.3 s exposure short 4.0 ms ISO 624 · 25.9 s f 1120.9 px (estimated ±0.46 %) · 25.9 s f 1106.0 px (estimated ±0.46 %) · 27.6 s f 1106.1 px (estimated ±0.33 %) · 28.1 s f 1104.8 px (estimated ±0.28 %) · 28.8 s f 1105.4 px (estimated ±0.27 %) · 32.0 s f 1102.5 px (estimated ±0.25 %) · 36.4 s f 1099.9 px (estimated ±0.27 %) · 37.3 s f 1097.5 px (estimated ±0.37 %) · 40.6 s f 1096.3 px (estimated ±0.34 %)
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+After both fixes (deployed), `?exposure=4` again, the phone held still at
+477 mm and 26° tilt. Chrome asked for camera permission, and the tracker
+started from the saved calibration: `started from the one saved for camera 0,
+facing back (1117.8 px, camera names listed after a permission prompt)`. The
+saved value was 1117.8 px, not the 1096.3 px of the report before; the demo
+saves every new estimate, so presumably that page kept refining after the
+report was copied.
+
+150 / 150 frames had a pose, all 16 tags were used, err 0.95 / 0.98 px (0.48
+mm on the paper), homography fit 0.8 px. The `history` line has
+`f 1117.8 px (provided)` from the first frame and nothing after it, as it
+should for one viewing direction (accepting needs 3, and a jump needs > 10 %).
+
+From this one direction the frames agreed on a different focal length: the
+one-frame f was 1163 px over 150 frames, and the `fit` 1164 px (1160–1171),
+err 0.78 px with it against 0.94 px with the 1117.8 px in use. Across runs on
+camera 0 the estimates and `fit` values have ranged 1096–1164 px (±3 %; the
+1298 px run aside), while within one view they agree to under 1 % and the
+estimator reports ±0.3 %. Noise doesn't explain
+that; something the pinhole model leaves out (a principal point away from the
+image centre, or lens distortion) probably makes the best f depend on the view.
+Here it cost 0.16 px.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 2, facing back | camera 0, facing back | camera 3, facing front | camera 1, facing front
+fps      camera 30.1, analysed 29.9, with a pose 150/150
+interval 33 / 50 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.4 / 0.7 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   13.7 / 20.1 ms
+stages   gray 0.3 / 0.5  detect 12.6 / 18.3  pose 0.7 / 1.2  focal 0.1 / 0.2 ms
+bg age   18 / 35 ms at render
+pose age 18 / 35 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.4 / 0.7 ms
+tags     16 / 16 found, 16 / 16 used, err 0.95 / 0.98 px (0.48 / 0.50 mm on the paper)
+err by r centre 0.83 px (6450 corners), middle 1.15 (3150), edge - (0)
+view     477 / 478 mm above the paper, tilt 26 / 27° from straight down
+motion   board centre 10 / 21 px/s in the image (≈ 0 / 0 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1117.8 px (provided); started from the one saved for camera 0, facing back (1117.8 px, camera names listed after a permission prompt)
+fit      1164 px best (1160–1171 over 12 tilted frames; long-side FOV 57.6°, ?fov=57.6), err 0.78 px with it, 0.94 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 0.8 px, 0.4 / 0.4 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (2 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.8 px, f 1163 (150), 100–300 -, ≥ 300 -
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1117.8 px (provided) · 1.4 s exposure short 4.0 ms ISO 624
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
