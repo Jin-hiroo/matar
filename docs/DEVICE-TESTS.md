@@ -1059,3 +1059,510 @@ calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 0.8 p
 history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1117.8 px (provided) · 1.4 s exposure short 4.0 ms ISO 624
 (median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
 ```
+
+Without `?exposure=` (automatic exposure, 10 ms), moving at 717 mm and 29°
+tilt, 330 / 763 px/s: 114 / 150 frames had a pose. The 36 without one had no
+tag found (3–8 px of blur); 4 ms kept every frame of a faster shake above.
+
+The homography fit was 2.0 / 2.2 px, the same as the 1298 px run, and 2.0 px in
+every speed band, under 100 px/s too. The sheet was flat on a hard table (the
+maintainer). err 2.07 px (1.72 mm on the paper), 2.06 px with the best focal
+length, so the focal length isn't it. The calibration took no frame (0 of 108
+under 1 px or 1 mm) and kept the saved 1117.8 px.
+
+What it isn't:
+
+- **distance:** 0.7 px at 670 mm on 2026-10-23;
+- **motion:** the same 2.0 px under 100 px/s;
+- **lens distortion:** on the demo board rendered at this geometry (720 × 1280,
+  f 1118 px), with the board in the middle third of the image, even k1 = −0.3
+  (11 % at the image corner) leaves only 0.49 px (0.41 px without);
+- **decimation:** `'auto'` picks ×1 there, and forcing ×2 changes the fit by under
+  0.1 px (blur σ 0.8–2.5 px);
+- **the frame path:** an independent read-only review (Codex) of the
+  VideoFrame-to-gray conversion (all formats, visible rect, strides) and the
+  refinement after decimation found no defect.
+
+Still possible:
+
+- **a bent sheet:** 1.9 px needs about 10 mm of lift at the edges, which a flat
+  table rules out;
+- **edges placed off by the camera's processing:** blur with a tone curve unlike
+  the detector's gamma 2.2 makes every tag look bigger or smaller than printed.
+  Rendered with linear encoding and σ 1.5 px of blur, all 16 tags came out
+  1.0–1.1 px too big, a 1.08 px fit (0.14 px with gamma 2.2). Sharpening or
+  focus may add to that; how much is not known;
+- **random corner error.**
+
+The report now has a `corners` line: the detected corners of the window's
+stillest frame. `scripts/refit-corners.ts` refits them. Each cause leaves its
+own mark on the synthetic frames:
+
+- **lens:** a radial term takes most of the error out;
+- **bent sheet:** each half of the board fits alone, 0.6 px against 1.9 px;
+- **edge placement:** taking each tag's expansion out leaves 0.25 px of the
+  1.08 px;
+- **random corner error:** nothing helps.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url -
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 2, facing back | camera 0, facing back | camera 3, facing front | camera 1, facing front
+fps      camera 30.1, analysed 29.9, with a pose 114/150
+interval 33 / 50 ms between analysed frames
+no pose  36 frames in 9 runs (longest 7), tags found on them 0 / 0
+grab     0.3 / 0.4 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   19.9 / 26.3 ms
+stages   gray 0.3 / 0.4  detect 18.7 / 25.4  pose 0.7 / 1.2  focal 0.0 / 0.1 ms
+bg age   19 / 35 ms at render
+pose age 19 / 35 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.5 ms
+tags     16 / 16 found, 16 / 16 used, err 2.07 / 2.27 px (1.72 / 1.83 mm on the paper)
+err by r centre 2.01 px (5140 corners), middle 2.22 (1240), edge - (0)
+view     717 / 722 mm above the paper, tilt 29 / 30° from straight down
+motion   board centre 330 / 763 px/s in the image (≈ 3 / 8 px of blur at 10.0 ms)
+exposure 10.0 ms, continuous, ISO 250, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200
+focal    1117.8 px (provided); started from the one saved for camera 0, facing back (1117.8 px, camera names listed after a permission prompt)
+fit      1077 px best (1056–1153 over 12 tilted frames; long-side FOV 61.5°, ?fov=61.5), err 2.06 px with it, 2.08 px with the f in use
+calib    108 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 2.0 / 2.2 px, 1.5 / 1.7 mm on the paper), 0 of them under 1 px or 1 mm, from 0 directions ≥ 10° apart (3 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 2.0 px, f 1084 (21), 100–300 2.0 px, f 1067 (28), ≥ 300 2.0 px, f 1068 (55)
+history  0.0 s camera camera 0, facing back · 0.0 s f 1117.8 px (provided)
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+Shaking at the same spot with `?exposure=4` (576 mm, 31° tilt, 766 / 1571 px/s):
+144 / 149 frames had a pose; the 5 lost were single frames with no tag found.
+err 1.29 / 2.06 px (0.93 mm on the paper). This time the session wasn't in the 2
+px state: the homography fit was 0.9 px under 100 px/s, 1.0 px at 100–300 px/s
+and 1.4 px above. The focal length was refined from the saved 1117.8 px in two
+2 % steps to 1163.0 px (estimated ±0.56 %, now saved). `fit` gives 1129 px
+(1006–1253), and the one-frame f by speed 1128–1147 px.
+
+The `corners` frame (10 tags, outer corners moving 38 px/s) refitted with
+`scripts/refit-corners.ts`:
+
+- **homography fit:** 0.79 px;
+- **radial term:** 0.78 px (no lens effect);
+- **halves alone:** 0.72 / 0.49 px (fewer tags each, no fold);
+- **tag size:** every tag smaller than printed, median −0.37 px (−0.88 to
+  −0.05); without that, 0.65 px.
+
+So even a good frame has edges placed towards the black.
+
+On the demo board rendered at this geometry, a tone curve steeper than the
+detector's gamma 2.2 has the same sign. Encoded with gamma 3.5 and blurred
+σ 1.5 px:
+
+| detector `edgeGamma` | tags vs printed | homography fit |
+| -------------------- | --------------- | -------------- |
+| 2.2 (default)        | −0.72 px        | 0.76 px        |
+| 3.0                  | −0.22 px        | 0.25 px        |
+| 3.5 (matched)        | +0.03 px        | 0.09 px        |
+
+The demo now shows this as an `edges` line (each frame's median tag size against
+the board's spacing, over the window) and takes `?edgeGamma=`. The fake camera
+in the e2e test, rendered with gamma 2.2, gives +0.01 px.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 2, facing back | camera 0, facing back | camera 3, facing front | camera 1, facing front
+fps      camera 30.1, analysed 29.8, with a pose 144/149
+interval 33 / 34 ms between analysed frames
+no pose  5 frames in 5 runs (longest 1), tags found on them 0 / 0
+grab     0.3 / 0.4 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   19.2 / 28.7 ms
+stages   gray 0.3 / 0.4  detect 18.3 / 27.1  pose 0.5 / 1.0  focal 0.0 / 0.1 ms
+bg age   19 / 35 ms at render
+pose age 19 / 35 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.6 ms
+tags     14 / 16 found, 14 / 16 used, err 1.29 / 2.06 px (0.93 / 1.26 mm on the paper)
+err by r centre 1.45 px (4525 corners), middle 1.45 (2591), edge - (0)
+view     576 / 594 mm above the paper, tilt 31 / 34° from straight down
+motion   board centre 766 / 1571 px/s in the image (≈ 3 / 6 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1163.0 px (estimated ±0.56 %); started from the one saved for camera 0, facing back (1117.8 px, camera names listed after a permission prompt); measured one saved for camera 0, facing back; first estimate 2.5 s after the first frame it could use
+fit      1129 px best (1006–1253 over 12 tilted frames; long-side FOV 59.1°, ?fov=59.1), err 1.25 px with it, 1.37 px with the f in use
+calib    132 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 1.2 / 2.0 px, 0.8 / 1.3 mm on the paper), 83 of them under 1 px or 1 mm, from 2 directions ≥ 10° apart (4 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.9 px, f 1147 (11), 100–300 1.0 px, f 1136 (16), ≥ 300 1.4 px, f 1128 (103)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1117.8 px (provided) · 1.4 s exposure short 4.0 ms ISO 624 · 2.6 s f 1140.2 px (estimated ±0.79 %) · 3.0 s f 1163.0 px (estimated ±0.56 %)
+corners  -3.9 s, outer corners 38 px/s, tilt 35°, 720×1280 fx 1163.0 fy 1163.0 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 436.4,645.7 491.0,645.5 488.6,693.3 432.7,692.9 · 115: 523.4,719.6 582.2,719.1 582.4,770.9 522.7,770.8 · 170: 610.4,391.2 661.0,386.4 663.5,424.1 612.1,427.9 · 252: 453.7,401.1 501.1,398.2 499.5,435.0 451.1,437.4 · 287: 620.1,718.4 681.2,718.1 684.0,770.7 620.9,771.7 · 415: 450.0,456.1 498.9,454.4 497.1,493.2 447.3,493.7 · 449: 446.0,515.3 496.3,513.6 494.4,554.2 442.9,556.2 · 484: 530.6,396.2 579.5,392.7 579.6,429.1 530.6,433.0 · 518: 441.1,577.0 493.9,576.5 491.9,621.1 438.0,621.3 · 580: 431.1,718.5 487.7,719.8 485.1,770.6 427.5,771.6
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+Four runs at the same spot with `?exposure=4` (500–520 mm, 26–31° tilt, all 16
+tags used, 146–150 / 150 frames with a pose): the detector's default
+`edgeGamma` while shaking, `?edgeGamma=3.5` still, `?edgeGamma=3` still and
+`?edgeGamma=3.5` shaking. The homography fit was 0.4–0.7 px in each, so none was
+in the 2 px state.
+
+A higher `edgeGamma` turned the tags from smaller than printed to bigger:
+
+| `edgeGamma`   | run                      | `edges` (10–90 %)         | fit by speed (< 100 / 100–300 / ≥ 300 px/s) |
+| ------------- | ------------------------ | ------------------------- | ------------------------------------------- |
+| 2.2 (default) | shaking, 396 / 1191 px/s | −0.54 px (−0.99 to −0.31) | 0.5 / 0.6 / 0.9 px                          |
+| 3.0           | still                    | +0.42 px (+0.40 to +0.44) | 0.5 / - / - px                              |
+| 3.5           | still                    | +0.36 px (+0.33 to +0.38) | 0.4 / 0.5 / 0.5 px                          |
+| 3.5           | shaking, 253 / 852 px/s  | +0.26 px (+0.20 to +0.36) | 0.4 / 0.4 / 0.4 px                          |
+
+- **Both overshoot.** The sign changes between 2.2 and 3.0, at about 2.6 if
+  the change is linear.
+- **3.0 and 3.5 read alike.** A plain tone curve doesn't predict that: on the
+  rendered board above they are 0.25 px apart. Sharpening in the camera might
+  explain it; that isn't tested.
+- **Motion:** with the default, the tags shrink more as the board moves faster
+  and the fit grows with speed. With 3.5, neither happens.
+
+The `corners` frames, refitted:
+
+| run          | homography fit | radial term | tag size, median           | fit without it |
+| ------------ | -------------- | ----------- | -------------------------- | -------------- |
+| 2.2, shaking | 0.51 px        | 0.45 px     | −0.29 px (16 / 16 smaller) | 0.34 px        |
+| 3.0, still   | 0.50 px        | 0.50 px     | +0.43 px (16 / 16 bigger)  | 0.29 px        |
+| 3.5, still   | 0.41 px        | 0.41 px     | +0.32 px (15 / 16 bigger)  | 0.26 px        |
+| 3.5, shaking | 0.40 px        | 0.39 px     | +0.25 px (16 / 16 bigger)  | 0.30 px        |
+
+So edge placement is a small part of the fit: matching it exactly would leave
+0.26–0.34 px. It barely moves the focal length either: growing or shrinking
+every tag by 0.6 px moves these frames' one-frame f by 0.3 % (16 tags), and
+report 5's frame by 1 % (10 tags).
+
+**The focal length depends on where the paper recedes in the image:**
+
+- **today:** the four `corners` frames give a one-frame f of 1068–1092 px, and
+  the `fit` lines 1058–1075 px. The still runs' 12-frame fits were narrow:
+  1067–1075 and 1071–1077 px;
+- **before:** 1115–1144 px in the nine runs of 2026-10-23, and 1131 px for
+  report 5's `corners` frame, at similar distances and tilts;
+- **direction:** in all four of today's frames the top of the image was nearer,
+  so the paper receded towards the bottom. In report 5's frame it receded
+  towards the top. The 2026-10-23 runs have no `corners` line.
+
+Moving the lens centre down from the image centre raises the one-frame f of
+today's frames and lowers report 5's. At 18 px below, they agree at about
+1100 px (1095–1104 px; the shaking 3.5 frame gives 1130 px). On the demo board
+rendered at this geometry with the lens centre 18 px below the image centre and
+f = 1100 px, the paper receding towards the top gives 1131 px, towards the
+bottom 1067 px.
+
+Two directions can't prove an offset. With the paper on a table they also can't
+separate a fixed offset from one that follows the phone's attitude (gravity
+shifting a stabilised lens, for example): the image edge the paper recedes
+towards is where the world's up points.
+
+The report now has a `centre` line. Since Start, it gives the one-frame f by the
+image edge the paper recedes towards, and the lens centre that brings opposite
+edges together. Checked on:
+
+- **rendered frames from all four sides:** it recovers an offset of (−12, +18)
+  px within 1 px, with 1 px of corner noise;
+- **the fake camera in the e2e test** (paper receding towards the top): 475 px,
+  against 474.4 px.
+
+Retest with auto-rotate off, so the page stays portrait: `?exposure=4&edgeGamma=2.6`
+from one spot, about 30° from straight down. Hold still about 3 s each with the
+phone upright, turned a quarter left, a quarter right and upside down, then copy
+one report.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 1, facing front | camera 0, facing back | camera 3, facing front | camera 2, facing back
+fps      camera 29.9, analysed 29.9, with a pose 146/150
+interval 33 / 34 ms between analysed frames
+no pose  4 frames in 2 runs (longest 2), tags found on them 0 / 0
+grab     0.3 / 0.5 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   15.1 / 21.5 ms
+stages   gray 0.3 / 0.5  detect 13.8 / 19.9  pose 0.9 / 1.2  focal 0.1 / 0.2 ms
+bg age   18 / 36 ms at render
+pose age 18 / 36 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.6 ms
+tags     16 / 16 found, 16 / 16 used, err 0.77 / 1.47 px (0.45 / 0.78 mm on the paper)
+err by r centre 1.04 px (4509 corners), middle 0.92 (4094), edge 0.87 (1); edge corners −0.86 px radially (+ = further out than the fit)
+edges    tags −0.54 px bigger than printed vs the fit (10–90 %: −0.99 to −0.31 over 146 frames; − = smaller, edges placed towards the black), 100 % of tags smaller; edgeGamma default (?edgeGamma=)
+view     505 / 512 mm above the paper, tilt 26 / 31° from straight down
+motion   board centre 396 / 1191 px/s in the image (≈ 2 / 5 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 1875, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1062.9 px (estimated ±0.94 %); started from the one saved for camera 0, facing back (1042.0 px); measured one saved for camera 0, facing back; first estimate 10.0 s after the first frame it could use
+fit      1058 px best (701–1136 over 12 tilted frames; long-side FOV 62.3°, ?fov=62.3), err 1.00 px with it, 1.13 px with the f in use
+calib    143 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.7 / 1.3 px, 0.4 / 0.8 mm on the paper), 136 of them under 1 px or 1 mm, from 3 directions ≥ 10° apart (4 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.5 px, f 1069 (20), 100–300 0.6 px, f 1052 (36), ≥ 300 0.9 px, f 1049 (87)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1042.0 px (provided) · 1.5 s exposure short 4.0 ms ISO 1875 · 11.3 s f 1062.9 px (estimated ±0.94 %)
+corners  -0.0 s, outer corners 37 px/s, tilt 27°, 720×1280 fx 1062.9 fy 1062.9 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 129.6,825.8 185.7,825.0 189.0,869.1 134.2,869.8 · 115: 223.8,890.2 277.8,889.2 278.7,929.8 226.2,931.1 · 170: 305.3,504.7 369.8,503.3 368.6,562.3 306.7,563.2 · 252: 96.5,505.6 161.6,505.4 165.6,564.6 102.2,564.6 · 259: 403.7,674.2 462.8,673.3 459.5,724.5 402.3,724.7 · 287: 310.4,888.4 363.5,887.2 363.4,928.0 310.8,928.9 · 319: 406.3,591.8 467.9,591.4 464.2,646.0 404.9,646.8 · 389: 396.4,886.3 449.4,885.3 447.2,925.7 395.1,927.1 · 415: 105.3,594.9 168.0,594.3 172.0,649.3 111.1,650.4 · 442: 400.9,750.7 458.0,749.2 455.0,796.3 399.8,797.4 · 449: 114.0,677.5 174.0,677.0 178.3,728.3 119.2,728.7 · 478: 409.7,503.3 472.9,503.0 469.1,562.0 407.5,562.3 · 484: 201.4,504.7 265.7,504.4 267.8,563.3 204.8,563.9 · 518: 122.0,754.7 180.1,753.6 183.9,800.8 127.0,802.6 · 523: 398.7,820.9 453.9,819.6 450.7,863.1 397.1,864.5 · 580: 136.5,892.2 190.7,891.1 193.9,931.8 141.1,933.4
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=3.5
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 1, facing front | camera 0, facing back | camera 3, facing front | camera 2, facing back
+fps      camera 30.0, analysed 29.9, with a pose 150/150
+interval 33 / 50 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.4 / 0.6 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   21.6 / 27.6 ms
+stages   gray 0.3 / 0.5  detect 20.4 / 26.3  pose 0.7 / 1.0  focal 0.1 / 0.2 ms
+bg age   34 / 51 ms at render
+pose age 34 / 51 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.4 / 0.8 ms
+tags     16 / 16 found, 16 / 16 used, err 0.50 / 0.53 px (0.32 / 0.33 mm on the paper)
+err by r centre 0.48 px (7330 corners), middle 0.57 (2270), edge - (0)
+edges    tags +0.36 px bigger than printed vs the fit (10–90 %: +0.33 to +0.38 over 150 frames; − = smaller, edges placed towards the black), 0 % of tags smaller; edgeGamma 3.5 (?edgeGamma=)
+view     500 / 501 mm above the paper, tilt 29 / 29° from straight down
+motion   board centre 8 / 39 px/s in the image (≈ 0 / 0 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1042.0 px (provided); started from the one saved for camera 0, facing back (1042.0 px)
+fit      1069 px best (1067–1075 over 12 tilted frames; long-side FOV 61.8°, ?fov=61.8), err 0.45 px with it, 0.50 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.4 / 0.5 px, 0.3 / 0.3 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (2 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.4 px, f 1070 (140), 100–300 0.5 px, f 1068 (4), ≥ 300 0.5 px, f 1068 (6)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1042.0 px (provided) · 1.4 s exposure short 4.0 ms ISO 624
+corners  -2.0 s, outer corners 1 px/s, tilt 29°, 720×1280 fx 1042.0 fy 1042.0 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 198.6,812.4 252.0,812.7 254.8,853.7 202.6,853.9 · 115: 286.4,873.4 338.3,873.6 338.8,912.4 288.5,912.3 · 170: 367.4,516.5 429.1,516.5 428.2,572.5 367.6,572.5 · 252: 169.4,516.7 231.4,516.5 234.9,572.9 174.7,573.4 · 259: 459.8,676.5 517.2,676.4 513.6,724.5 457.2,724.6 · 287: 368.2,873.7 420.1,873.8 418.7,912.5 368.4,912.4 · 319: 462.9,599.4 523.0,599.4 518.8,651.6 460.6,651.9 · 389: 450.6,873.8 502.4,874.0 499.0,912.5 448.5,912.6 · 415: 177.3,599.5 236.9,599.5 240.3,651.7 182.4,651.6 · 442: 456.3,747.5 512.0,747.3 508.1,791.9 454.1,792.1 · 449: 184.9,676.5 242.1,676.5 245.5,724.5 189.7,724.4 · 478: 466.7,515.9 529.0,516.5 524.7,572.8 464.1,572.5 · 484: 268.1,516.6 330.5,516.5 331.6,572.4 271.0,572.6 · 518: 192.0,746.7 247.4,747.1 250.5,791.6 196.6,791.5 · 523: 453.1,812.9 506.8,812.9 503.6,854.4 451.2,854.3 · 580: 204.6,873.4 256.3,873.3 259.0,912.2 208.6,912.2
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=3
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 1, facing front | camera 0, facing back | camera 3, facing front | camera 2, facing back
+fps      camera 30.0, analysed 29.8, with a pose 150/150
+interval 33 / 50 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.3 / 0.5 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   22.2 / 29.7 ms
+stages   gray 0.3 / 0.4  detect 21.1 / 28.3  pose 0.7 / 1.0  focal 0.1 / 0.1 ms
+bg age   34 / 42 ms at render
+pose age 34 / 42 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.6 ms
+tags     16 / 16 found, 16 / 16 used, err 0.58 / 0.60 px (0.38 / 0.39 mm on the paper)
+err by r centre 0.57 px (8498 corners), middle 0.65 (1102), edge - (0)
+edges    tags +0.42 px bigger than printed vs the fit (10–90 %: +0.40 to +0.44 over 150 frames; − = smaller, edges placed towards the black), 0 % of tags smaller; edgeGamma 3 (?edgeGamma=)
+view     511 / 515 mm above the paper, tilt 31 / 31° from straight down
+motion   board centre 9 / 20 px/s in the image (≈ 0 / 0 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 1875, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1042.0 px (provided); started from the one saved for camera 0, facing back (1042.0 px)
+fit      1074 px best (1071–1077 over 12 tilted frames; long-side FOV 61.6°, ?fov=61.6), err 0.52 px with it, 0.59 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.5 / 0.5 px, 0.3 / 0.3 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (3 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.5 px, f 1073 (150), 100–300 -, ≥ 300 -
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1042.0 px (provided) · 1.5 s exposure short 4.0 ms ISO 1875
+corners  -2.1 s, outer corners 3 px/s, tilt 31°, 720×1280 fx 1042.0 fy 1042.0 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 183.3,774.2 234.7,776.0 238.4,816.5 188.0,814.6 · 115: 269.0,836.2 319.1,838.1 320.6,875.9 271.7,874.1 · 170: 340.7,489.0 402.4,490.5 401.6,545.9 342.0,544.3 · 252: 149.9,486.5 209.6,486.8 214.2,542.5 156.3,541.3 · 259: 434.0,648.5 490.8,649.7 488.0,697.6 432.5,695.8 · 287: 348.2,839.2 398.5,841.0 398.4,878.9 349.3,877.0 · 319: 435.9,572.4 495.1,574.1 492.2,625.3 435.0,624.3 · 389: 428.3,841.9 479.3,843.8 477.1,881.8 427.4,880.0 · 415: 159.0,566.4 216.4,568.3 220.5,618.8 164.9,617.9 · 442: 431.9,718.0 486.8,719.6 484.0,763.5 430.9,762.0 · 449: 167.6,641.3 222.8,643.1 227.0,690.1 173.2,688.3 · 478: 438.2,490.6 499.8,491.9 496.8,547.6 436.7,546.8 · 484: 244.8,487.7 305.2,488.3 307.4,543.6 248.3,543.1 · 518: 175.6,710.2 228.9,712.0 232.9,755.4 180.9,753.9 · 523: 430.3,782.5 483.0,784.0 480.7,824.7 428.9,823.0 · 580: 190.3,833.7 240.0,835.2 243.2,872.9 194.7,871.5
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=3.5
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 1, facing front | camera 0, facing back | camera 3, facing front | camera 2, facing back
+fps      camera 30.1, analysed 29.9, with a pose 150/150
+interval 33 / 33 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.3 / 0.4 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   18.0 / 24.7 ms
+stages   gray 0.3 / 0.5  detect 16.4 / 23.7  pose 0.8 / 1.0  focal 0.1 / 0.2 ms
+bg age   18 / 34 ms at render
+pose age 18 / 34 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.6 ms
+tags     16 / 16 found, 16 / 16 used, err 0.61 / 0.85 px (0.37 / 0.53 mm on the paper)
+err by r centre 0.61 px (6795 corners), middle 0.74 (2617), edge - (0)
+edges    tags +0.26 px bigger than printed vs the fit (10–90 %: +0.20 to +0.36 over 150 frames; − = smaller, edges placed towards the black), 7 % of tags smaller; edgeGamma 3.5 (?edgeGamma=)
+view     519 / 578 mm above the paper, tilt 27 / 31° from straight down
+motion   board centre 253 / 852 px/s in the image (≈ 1 / 3 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1042.0 px (estimated ±0.98 %); started from the one saved for camera 0, facing back (1162.8 px, camera names listed after a permission prompt); measured one saved for camera 0, facing back; first estimate 4.6 s after the first frame it could use
+fit      1075 px best (987–1101 over 12 tilted frames; long-side FOV 61.6°, ?fov=61.6), err 0.47 px with it, 0.56 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.4 / 0.5 px, 0.3 / 0.3 mm on the paper), 150 of them under 1 px or 1 mm, from 3 directions ≥ 10° apart (5 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.4 px, f 1087 (27), 100–300 0.4 px, f 1045 (63), ≥ 300 0.4 px, f 1074 (60)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1162.8 px (provided) · 1.3 s exposure short 4.0 ms ISO 624 · 66.5 s f 1139.6 px (estimated ±0.84 %) · 70.0 s f 1023.2 px (estimated ±0.10 %) · 75.0 s f 1042.0 px (estimated ±0.98 %)
+corners  -0.3 s, outer corners 55 px/s, tilt 28°, 720×1280 fx 1042.0 fy 1042.0 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 175.2,753.2 234.0,748.6 236.2,797.2 178.5,802.4 · 115: 270.2,817.3 325.8,812.2 325.4,857.1 271.3,862.7 · 170: 365.9,397.2 429.2,396.1 427.0,459.2 364.3,461.8 · 252: 152.3,403.7 220.7,402.0 223.2,466.9 156.5,469.8 · 259: 456.9,574.8 514.3,571.4 510.3,626.0 453.7,629.6 · 287: 357.9,809.1 411.8,804.0 409.4,848.9 356.8,854.0 · 319: 461.7,487.9 521.6,485.3 516.7,543.7 458.2,546.9 · 389: 443.0,801.3 495.5,796.0 491.7,840.5 440.3,845.5 · 415: 158.6,501.1 224.2,498.6 226.6,559.0 162.3,562.3 · 442: 452.1,655.8 508.1,651.5 503.6,702.3 449.0,707.0 · 449: 164.4,591.6 227.6,587.7 229.7,644.3 167.9,648.2 · 478: 466.7,395.0 529.0,393.6 523.6,455.8 463.3,457.9 · 484: 260.7,400.8 327.2,398.8 326.6,463.1 262.0,465.4 · 518: 169.9,675.4 231.2,671.0 233.0,723.4 173.5,728.1 · 523: 447.2,731.1 501.6,726.4 497.5,773.7 444.7,778.4 · 580: 180.3,825.8 237.1,820.2 238.9,865.9 183.3,871.6
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+The retest, with `?exposure=4&edgeGamma=2.6`: one report at the end, after
+turning the phone in its own plane at one spot. The report's own window (the
+last 5 s) was nearly straight down: 839 mm above the paper, 5–13° tilt.
+
+- **`edges`:** tags +0.14 px bigger than printed (10–90 %: +0.07 to +0.17), 14 %
+  of them smaller. 2.6 is near the zero: −0.54 px at 2.2, +0.26 to +0.42 px at
+  3.0–3.5. The earlier runs were at 500 mm and about 30°, though, and this one
+  is a single run.
+- **The `corners` frame** (839 mm, 5°) refits to 0.44 px. A radial term gives
+  0.43 px, the halves 0.38–0.45 px, and matching the tag sizes 0.41 px. Nothing
+  stands out, so it is plain corner noise at this distance.
+- **`centre`:** bottom 1160 px (83 frames), left 1134 px (172), right 1147 px
+  (118), top none. Left and right agree at 1141 px with the lens centre 2 px
+  left of the image centre. The hold that should have counted for the top was
+  probably under 20° tilt.
+- **The library's estimate:** 1191.6 px (±0.21 %), above every edge's median.
+
+This doesn't support a fixed lens-centre offset as the cause of the spread
+between sessions. The paper receded towards the bottom of the image here, as in
+the four runs above (their `corners` frames have the bigger tags at the top),
+yet the bottom gave 1160 px here and 1058–1092 px there. A fixed offset moves
+one direction's focal length the same way every time: 18 px below the image
+centre would put the bottom 2–4 % under left and right (at 20–40° tilt), where
+it reads 1.7 % over. The estimates for camera 0 on this phone since 2026-10-23
+range over 1023–1298 px, while still holds within a session agree to about
+±0.5 %.
+
+Two things in the software add to the spread of the estimates:
+
+- **The jump rule takes one view's focal length.** It needs 5 quality frames
+  in a row, each more than 10 % from the focal length in use and within 5 % of
+  each other, and jumps to their median (`src/pose/focal.ts`, `tryJump`). In a
+  still hold consecutive frames agree to about ±0.4 % (the 12-frame `fit` ranges
+  above), so the five frames are one view, and the result is that view's focal
+  length. Views differ by several percent, and the first one more than 10 % off
+  wins. This time that was most likely 1191.6 px from 1062.9 px: its ±0.21 % fits
+  five consecutive frames, not views from several directions. This morning
+  1162.8 → 1023.2 px went the same way. The demo starts each session from the
+  value saved by the last one, so a one-view value carries over.
+- **Chrome asks for video stabilisation whenever the camera offers it**
+  (`VideoCaptureCamera2.java` in Chromium's current main; not checked against
+  Chrome 155), and for `EDGE_MODE_FAST` sharpening. Stabilisation crops the
+  picture and moves the crop with the phone's motion. That would move the lens
+  centre between holds and sessions. Whether this phone offers stabilisation is
+  unknown, and the web has no constraint to turn it off. The sharpening could be
+  why `edgeGamma` 3.0 and 3.5 read alike.
+
+The one-frame focal lengths don't depend on the estimator, and they still
+disagree: 1058–1092 px this morning and 1160 px now, both for the bottom.
+
+Next, a test that doesn't move the phone. Rest it at 30–45° from straight
+down, leaning on something firm, with all 16 tags in view, and touch only the
+screen. Open `?exposure=4&edgeGamma=2.6`, tap Start, wait 5 s and copy a report.
+Copy a second one 10 s later. Then reload twice, copying one report after each
+reload. Comparing the `corners` lines between the reports separates three
+cases:
+
+- **the picture changes size between page loads:** the camera's projection
+  changes when it opens;
+- **it shifts with the phone untouched:** the crop or the lens centre moves;
+- **neither:** the camera is stable between loads, and the spread comes from how
+  the phone is held.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=2.6
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 1, facing front | camera 0, facing back | camera 3, facing front | camera 2, facing back
+fps      camera 30.0, analysed 29.9, with a pose 149/149
+interval 33 / 50 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.3 / 0.5 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   16.7 / 23.2 ms
+stages   gray 0.3 / 0.5  detect 15.6 / 21.7  pose 0.8 / 1.0  focal 0.0 / 0.0 ms
+bg age   19 / 51 ms at render
+pose age 19 / 51 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.4 / 0.8 ms
+tags     16 / 16 found, 16 / 16 used, err 0.43 / 0.48 px (0.31 / 0.34 mm on the paper)
+err by r centre 0.43 px (8759 corners), middle 0.38 (761), edge - (0)
+edges    tags +0.14 px bigger than printed vs the fit (10–90 %: +0.07 to +0.17 over 149 frames; − = smaller, edges placed towards the black), 14 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     839 / 842 mm above the paper, tilt 5 / 13° from straight down
+motion   board centre 45 / 253 px/s in the image (≈ 0 / 1 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1191.6 px (estimated ±0.21 %); started from the one saved for camera 0, facing back (1062.9 px, camera names listed after a permission prompt); measured one saved for camera 0, facing back; first estimate 15.0 s after the first frame it could use
+fit      1196 px best (1170–1229 over 6 tilted frames; long-side FOV 56.3°, ?fov=56.3), err 0.42 px with it, 0.42 px with the f in use
+calib    0 frames with ≥ 6 tags at ≥ 20° tilt (homography fit - px, - mm on the paper), 0 of them under 1 px or 1 mm, from 0 directions ≥ 10° apart (4 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s -, 100–300 -, ≥ 300 -
+centre   one-frame f by the image edge the paper recedes towards, since Start: top - (0), bottom 1160 (83), left 1134 (172), right 1147 (118); lens centre x −2, y not fitted (needs top and bottom) px from the image centre (+ = right, down): f 1141 px, the sides' f ±0.1 % (±0.6 % with the image centre)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1062.9 px (provided) · 1.4 s exposure short 4.0 ms ISO 624 · 49.2 s f 1191.6 px (estimated ±0.21 %)
+corners  -1.4 s, outer corners 9 px/s, tilt 5°, 720×1280 fx 1191.6 fy 1191.6 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 477.3,578.2 432.7,576.8 432.9,531.9 478.3,533.6 · 115: 407.2,509.7 361.4,508.0 363.1,464.1 407.4,465.2 · 170: 326.0,847.7 280.2,846.2 281.4,800.2 327.4,801.2 · 252: 472.9,850.5 426.9,849.5 428.1,804.1 473.6,804.6 · 259: 257.0,707.6 211.2,706.9 212.0,661.2 258.0,662.3 · 287: 334.3,507.6 290.4,506.2 290.8,461.4 336.3,463.5 · 319: 254.3,776.3 208.9,775.9 210.0,729.2 256.5,731.0 · 389: 263.1,505.0 218.0,504.3 219.9,460.0 264.9,460.8 · 415: 474.0,781.6 427.9,780.8 429.5,735.4 474.7,735.8 · 442: 259.1,639.8 213.3,638.0 214.8,593.0 259.8,594.8 · 449: 475.2,712.9 429.9,712.2 430.8,666.5 476.1,668.5 · 478: 252.6,846.2 206.2,844.4 207.6,798.1 253.9,799.8 · 484: 399.4,848.9 353.5,848.2 354.8,801.5 400.0,803.4 · 518: 476.7,645.0 431.5,644.3 431.7,599.2 477.5,600.0 · 523: 260.5,571.8 215.2,570.8 217.1,526.1 262.7,527.0 · 580: 478.4,511.4 433.4,510.5 434.1,466.1 478.5,467.5
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+Propped phone, first two reports (`?exposure=4&edgeGamma=2.6`, saved 1191.6 px):
+736 and 742 mm above the paper at 10–11° tilt. That is too flat for the `fit`,
+`calib` and `centre` lines, but enough to compare the corners.
+
+- **Between the two `corners` frames:** the picture is 0.73 % smaller, turned
+  0.88° and shifted by (−8.6, +12.0) px. A scale, rotation and shift leave
+  0.45 px, the frames' own noise (homography fits 0.46 and 0.51 px). The
+  reported height changes with the scale (736 → 742 mm). Whether the page was
+  reloaded between them, and whether the phone moved, isn't recorded.
+- **`edges`:** −0.14 and −0.15 px, against +0.14 px in the run above. So
+  `edgeGamma` 2.6 lands within ±0.15 px of zero.
+- **Refits:** a radial term (k1 ≈ 0.10, about 25 px at the image corner) takes
+  0.46 → 0.42 px and 0.51 → 0.47 px; nothing else stands out.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=2.6
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 1, facing front | camera 0, facing back | camera 3, facing front | camera 2, facing back
+fps      camera 30.0, analysed 29.9, with a pose 150/150
+interval 33 / 34 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.3 / 0.5 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   18.9 / 24.5 ms
+stages   gray 0.3 / 0.4  detect 17.8 / 23.0  pose 0.8 / 1.0  focal 0.0 / 0.1 ms
+bg age   18 / 35 ms at render
+pose age 18 / 35 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.6 ms
+tags     16 / 16 found, 16 / 16 used, err 0.57 / 0.61 px (0.36 / 0.38 mm on the paper)
+err by r centre 0.58 px (7697 corners), middle 0.54 (1899), edge - (0)
+edges    tags −0.14 px bigger than printed vs the fit (10–90 %: −0.20 to −0.08 over 150 frames; − = smaller, edges placed towards the black), 86 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     736 / 740 mm above the paper, tilt 11 / 11° from straight down
+motion   board centre 8 / 15 px/s in the image (≈ 0 / 0 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1191.6 px (provided); started from the one saved for camera 0, facing back (1191.6 px)
+fit      - (hold still at ≥ 15° tilt with ≥ 6 tags in view)
+calib    0 frames with ≥ 6 tags at ≥ 20° tilt (homography fit - px, - mm on the paper), 0 of them under 1 px or 1 mm, from 0 directions ≥ 10° apart (0 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s -, 100–300 -, ≥ 300 -
+centre   - (hold still at ≥ 20° tilt with ≥ 6 tags in view)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1191.6 px (provided) · 1.4 s exposure short 4.0 ms ISO 624
+corners  -3.3 s, outer corners 3 px/s, tilt 11°, 720×1280 fx 1191.6 fy 1191.6 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 178.9,680.6 229.2,680.3 230.4,728.3 180.2,729.8 · 115: 261.2,752.9 312.0,752.9 312.4,800.1 262.9,800.6 · 170: 339.2,365.5 391.0,365.5 391.0,419.5 339.4,419.6 · 252: 167.6,366.6 220.7,366.6 222.9,420.2 169.8,420.6 · 259: 422.9,525.5 473.6,525.5 473.4,576.1 422.8,577.1 · 287: 341.6,752.1 391.1,751.5 391.0,799.6 341.8,799.7 · 319: 423.0,446.6 474.6,446.6 474.5,498.7 422.9,498.9 · 389: 421.8,751.7 471.2,751.4 469.7,798.3 420.5,798.8 · 415: 170.6,447.9 223.2,447.5 223.8,500.3 172.3,500.7 · 442: 422.3,603.0 472.9,602.9 472.2,652.4 421.6,653.6 · 449: 173.1,527.3 225.1,526.6 226.4,578.4 174.9,578.5 · 478: 423.2,365.5 476.3,365.5 475.1,419.5 423.1,419.5 · 484: 253.2,365.9 305.8,365.5 307.2,419.6 254.7,419.7 · 518: 176.0,604.5 226.9,604.4 228.7,654.6 177.4,654.7 · 523: 421.6,678.1 472.6,677.9 470.8,726.7 421.6,727.5 · 580: 181.1,753.2 231.4,753.2 232.8,801.0 183.1,801.2
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=2.6
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 1, facing front | camera 0, facing back | camera 3, facing front | camera 2, facing back
+fps      camera 30.0, analysed 29.8, with a pose 149/149
+interval 33 / 50 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.3 / 0.6 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   19.3 / 25.2 ms
+stages   gray 0.3 / 0.5  detect 18.2 / 23.6  pose 0.8 / 1.0  focal 0.0 / 0.1 ms
+bg age   19 / 36 ms at render
+pose age 19 / 36 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.7 ms
+tags     16 / 16 found, 16 / 16 used, err 0.57 / 0.61 px (0.36 / 0.38 mm on the paper)
+err by r centre 0.58 px (7771 corners), middle 0.56 (1765), edge - (0)
+edges    tags −0.15 px bigger than printed vs the fit (10–90 %: −0.20 to −0.11 over 149 frames; − = smaller, edges placed towards the black), 90 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     742 / 744 mm above the paper, tilt 10 / 10° from straight down
+motion   board centre 9 / 29 px/s in the image (≈ 0 / 0 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1191.6 px (provided); started from the one saved for camera 0, facing back (1191.6 px)
+fit      - (hold still at ≥ 15° tilt with ≥ 6 tags in view)
+calib    0 frames with ≥ 6 tags at ≥ 20° tilt (homography fit - px, - mm on the paper), 0 of them under 1 px or 1 mm, from 0 directions ≥ 10° apart (0 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s -, 100–300 -, ≥ 300 -
+centre   - (hold still at ≥ 20° tilt with ≥ 6 tags in view)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1191.6 px (provided) · 1.4 s exposure short 4.0 ms ISO 624
+corners  -2.9 s, outer corners 2 px/s, tilt 10°, 720×1280 fx 1191.6 fy 1191.6 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 172.3,693.3 222.6,692.7 224.8,741.1 175.0,742.5 · 115: 255.8,764.5 305.4,764.2 307.0,810.6 257.8,812.5 · 170: 326.3,379.4 378.1,379.3 379.8,432.2 328.3,432.5 · 252: 157.4,382.4 210.3,381.3 212.1,434.8 160.1,436.3 · 259: 412.8,536.9 463.5,535.1 463.5,585.7 413.0,587.6 · 287: 335.1,763.4 384.4,761.3 385.5,809.1 336.9,809.9 · 319: 411.5,458.2 462.8,457.3 463.5,509.1 411.9,509.8 · 389: 414.3,760.7 463.4,760.1 464.1,807.1 415.7,807.7 · 415: 161.2,463.4 213.1,461.5 215.2,514.4 163.6,514.8 · 442: 413.7,613.4 463.5,612.0 463.5,662.2 414.6,662.6 · 449: 165.1,541.9 216.8,540.1 218.3,591.5 167.2,592.7 · 478: 410.5,378.3 462.4,377.3 462.4,430.3 410.6,431.3 · 484: 242.0,380.7 294.1,380.4 296.5,433.3 243.8,433.8 · 518: 168.9,618.2 219.1,617.8 221.5,667.2 171.1,668.9 · 523: 414.3,688.5 464.3,686.2 464.1,735.6 414.5,736.4 · 580: 176.0,766.9 225.8,765.1 228.0,813.2 178.3,813.9
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
