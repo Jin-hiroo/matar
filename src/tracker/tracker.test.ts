@@ -9,6 +9,7 @@ import type {
   Board,
   BoardPose,
   CameraIntrinsics,
+  FocalSource,
   GrabEvent,
   MainToWorker,
   Mat4,
@@ -107,8 +108,14 @@ class FakePort extends EventTarget implements WorkerPort {
       (m): m is Extract<MainToWorker, { type: 'frame' }> => m.type === 'frame',
     );
   }
-  /** answers frame `frameId` with a result carrying `pose` */
-  result(frameId: number, timestampMs: number, pose: BoardPose | null): void {
+  /** answers frame `frameId` with a result carrying `pose`, solved with `k` from `focalSource` */
+  result(
+    frameId: number,
+    timestampMs: number,
+    pose: BoardPose | null,
+    k: CameraIntrinsics = K,
+    focalSource: FocalSource = 'prior',
+  ): void {
     this.reply({
       type: 'result',
       frameId,
@@ -117,8 +124,8 @@ class FakePort extends EventTarget implements WorkerPort {
       height: 480,
       detections: [],
       pose,
-      intrinsics: K,
-      focalSource: 'prior',
+      intrinsics: k,
+      focalSource,
       timingsMs: { gray: 0, detect: 1, pose: 1, focal: 0, total: 2 },
       frame: { path: 'gray', format: null, codedWidth: 640, codedHeight: 480, rotationDeg: 0 },
     });
@@ -255,6 +262,33 @@ describe('tracker', () => {
     expect(h.worker.terminated).toBe(true);
     expect(h.video.isConnected).toBe(false);
     expect(h.md.opened[0]!.stopped).toBe(true);
+  });
+
+  it("follows the worker's focal estimates in stats.focal and tracker.intrinsics", async () => {
+    const h = harness();
+    const tracker = createTracker({ board: BOARD }, h.env);
+    const poses: PoseEvent[] = [];
+    tracker.addEventListener('pose', (e) => poses.push(e as PoseEvent));
+    await tracker.start();
+    const K2 = { ...K, fx: K.fx * 1.2, fy: K.fy * 1.2 };
+    // as the worker host posts them: frame 1 (solved with the prior), then the
+    // estimate frame 1 led to, then frame 2 (solved with it)
+    h.video.tick(100);
+    h.worker.result(1, 100, pose(5));
+    h.worker.reply({ type: 'intrinsics', intrinsics: K2, source: 'estimated', stdDevPct: 0.5 });
+    expect(tracker.intrinsics).toEqual(K2);
+    h.video.tick(133);
+    h.worker.result(2, 133, pose(5), K2, 'estimated');
+    expect(poses.map((p) => p.stats.focal)).toEqual([
+      { fx: K.fx, source: 'prior', stdDevPct: null },
+      { fx: K2.fx, source: 'estimated', stdDevPct: 0.5 },
+    ]);
+    expect(tracker.intrinsics).toEqual(K2);
+    // a reset (another frame size, new intrinsics) shows in the next result
+    h.video.tick(166);
+    h.worker.result(3, 166, pose(5), K, 'prior');
+    expect(poses[2]!.stats.focal).toEqual({ fx: K.fx, source: 'prior', stdDevPct: null });
+    tracker.stop();
   });
 
   it('grabs a frame that came while the worker was busy if the video still shows it', async () => {

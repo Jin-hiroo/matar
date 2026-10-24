@@ -62,6 +62,11 @@ paper and the video lagged behind the camera.
 
 ### Fixed
 
+- `stats.focal.source` and `stdDevPct` went back to `'prior'` and null right after
+  the first estimate, and stayed there until the next one, while the estimated focal
+  length was in use (on the Android test phone for 25.7 s after a jump from the
+  prior). The worker posted the estimate before the result of the frame that made
+  it, whose source was from before; it now posts the result first.
 - Android: the lens rule (use the lowest-numbered back camera) works with current
   Chrome's labels, `camera N, facing back`. It only matched the older `camera2 N, …`,
   so on Chrome 155 the tracker kept whichever back camera `facingMode` opened (on the
