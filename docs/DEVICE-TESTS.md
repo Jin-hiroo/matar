@@ -1566,3 +1566,307 @@ history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f
 corners  -2.9 s, outer corners 2 px/s, tilt 10°, 720×1280 fx 1191.6 fy 1191.6 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 172.3,693.3 222.6,692.7 224.8,741.1 175.0,742.5 · 115: 255.8,764.5 305.4,764.2 307.0,810.6 257.8,812.5 · 170: 326.3,379.4 378.1,379.3 379.8,432.2 328.3,432.5 · 252: 157.4,382.4 210.3,381.3 212.1,434.8 160.1,436.3 · 259: 412.8,536.9 463.5,535.1 463.5,585.7 413.0,587.6 · 287: 335.1,763.4 384.4,761.3 385.5,809.1 336.9,809.9 · 319: 411.5,458.2 462.8,457.3 463.5,509.1 411.9,509.8 · 389: 414.3,760.7 463.4,760.1 464.1,807.1 415.7,807.7 · 415: 161.2,463.4 213.1,461.5 215.2,514.4 163.6,514.8 · 442: 413.7,613.4 463.5,612.0 463.5,662.2 414.6,662.6 · 449: 165.1,541.9 216.8,540.1 218.3,591.5 167.2,592.7 · 478: 410.5,378.3 462.4,377.3 462.4,430.3 410.6,431.3 · 484: 242.0,380.7 294.1,380.4 296.5,433.3 243.8,433.8 · 518: 168.9,618.2 219.1,617.8 221.5,667.2 171.1,668.9 · 523: 414.3,688.5 464.3,686.2 464.1,735.6 414.5,736.4 · 580: 176.0,766.9 225.8,765.1 228.0,813.2 178.3,813.9
 (median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
 ```
+
+### 2026-10-25, Android, Chrome 155: propped at 50°, untouched across reloads (Vercel)
+
+The propped-phone test from the 2026-10-24 section, steeper:
+`?exposure=4&edgeGamma=2.6`, the phone propped 310 mm above the paper at 50°
+tilt, the paper receding towards the top of the image, all 16 tags in view.
+Reports A and B 10 s apart on one page load, then C and D after one reload
+each.
+
+- **The camera keeps its picture.** Against A, with a scale, rotation and shift
+  fitted to the 64 corners:
+  - B, the same page 10 s later: 0.06 % bigger, moved (−1.0, +0.5) px, 0.17 px
+    left;
+  - C, after a reload: 0.16 % smaller, (−1.4, +0.3) px, 0.19 px left;
+  - D, after another: 0.19 % smaller, (−1.2, +0.2) px, 0.18 px left (C to D:
+    0.03 %, 0.2 px, 0.08 px left).
+
+  So with the phone still, neither stabilisation nor reopening the camera
+  moves the picture, and the 0.73 % and 15 px between the two 10–11° reports
+  came from the phone moving. Whether stabilisation warps frames while the
+  phone moves isn't tested.
+
+- **The one-frame f repeats:** `centre` top 1127, 1130, 1128 and 1128 px;
+  `fit` 1130, 1130, 1127 and 1127 px. At one view the camera's projection is
+  the same each time it opens, so the spread seen for one direction before
+  (1058–1092 and 1160 px for the bottom) comes from the views, not from
+  reopening.
+- **No lens distortion shows.** One radial term (k1 −0.002 to −0.009) leaves
+  the homography fit at 0.52–0.55 px, with the board over most of the lower
+  half of the image. The `err by r` line's +0.8 to +1.2 px radially at the
+  edge is measured against the pose, so it probably comes from the f in use:
+  the homography doesn't depend on f. The k1 ≈ 0.10 at 740 mm and 10° came
+  from a small board near the centre.
+- **What's left repeats.** Taking out each tag's expansion leaves 0.44–0.46 px
+  after the homography, and the same tags show the same shifts in every report
+  (tag 115: (−0.1, −0.4) px in A and D), while the corners move only
+  0.08–0.19 px between reports. So the 0.5 px floor is in the scene (the print,
+  the sheet, or how the detector sees each tag), not noise.
+- **`edges`:** +0.23 to +0.27 px (15 of 16 tags bigger in the refit). With
+  −0.15 px at 740 mm and +0.14 px at 840 mm, the offset moves by about
+  ±0.25 px with the conditions, so no single `edgeGamma` zeroes it.
+- **The focal length in use is 2 % off this view.** A started from a saved
+  1034.1 px (saved by a run after the 10–11° reports, not recorded here) and
+  jumped to 1152.3 px 12 s after the first frame it could use. The still
+  view's one-frame f, 1127–1131 px, is under 10 % from 1034.1, so the 5 jump
+  frames weren't from the still hold; probably the phone being set down after
+  Start (not recorded). C and D started from 1152.3 and kept it: one direction
+  gives no estimate, and 2 % is under the jump threshold. `err` is 0.91–0.98 px
+  with 1152.3 and 0.56–0.59 px with the `fit` value.
+- **The exposure was refused once:** in C, `?exposure=4` came back "refused or
+  not applied" (10 ms, automatic), as on 2026-10-23; A, B and D got 4 ms. The
+  corners don't change with it (C to D: 0.08 px).
+
+Next: keep the propped set-up and the page open, and turn the phone in its own
+plane so that the paper recedes towards the top, right, bottom and left of the
+image in turn (auto-rotate off, so the page and the 720×1280 frames stay
+portrait). Hold each still for 5 s and copy a report. Top against bottom, and
+left against right, give the lens centre; top and bottom together against left
+and right would show pixels that aren't square.
+
+Report A in full; B, C and D without the lines that match A apart from timings:
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=2.6
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 0, facing back | camera 2, facing back | camera 3, facing front | camera 1, facing front
+fps      camera 30.0, analysed 30.0, with a pose 150/150
+interval 33 / 34 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.3 / 0.4 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   15.8 / 21.5 ms
+stages   gray 0.3 / 0.4  detect 14.4 / 19.7  pose 0.8 / 1.1  focal 0.1 / 0.1 ms
+bg age   18 / 34 ms at render
+pose age 18 / 34 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.3 / 0.5 ms
+tags     16 / 16 found, 16 / 16 used, err 0.91 / 0.91 px (0.42 / 0.42 mm on the paper)
+err by r centre 0.93 px (4896 corners), middle 0.85 (4200), edge 1.11 (300); edge corners +0.83 px radially (+ = further out than the fit)
+edges    tags +0.26 px bigger than printed vs the fit (10–90 %: +0.21 to +0.27 over 150 frames; − = smaller, edges placed towards the black), 6 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     310 / 310 mm above the paper, tilt 50 / 50° from straight down
+motion   board centre 2 / 3 px/s in the image (≈ 0 / 0 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1152.3 px (estimated ±0.45 %); started from the one saved for camera 0, facing back (1034.1 px); measured one saved for camera 0, facing back; first estimate 12.0 s after the first frame it could use
+fit      1130 px best (1130–1130 over 12 tilted frames; long-side FOV 59.1°, ?fov=59.1), err 0.58 px with it, 0.91 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.5 / 0.5 px, 0.2 / 0.2 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (1 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.5 px, f 1131 (150), 100–300 -, ≥ 300 -
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1127 (1450), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1034.1 px (provided) · 1.4 s exposure short 4.0 ms ISO 624 · 12.0 s f 1152.3 px (estimated ±0.45 %)
+corners  -2.2 s, outer corners 1 px/s, tilt 50°, 720×1280 fx 1152.3 fy 1152.3 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 90.6,842.1 182.7,839.5 170.6,917.1 73.0,918.7 · 115: 224.7,958.1 327.2,957.1 324.2,1052.1 214.8,1052.8 · 170: 379.1,521.9 446.4,520.1 450.6,560.6 379.6,562.3 · 252: 164.5,526.5 231.2,525.2 225.5,565.6 155.2,567.2 · 259: 506.8,652.1 585.1,650.3 597.7,704.2 514.9,706.8 · 287: 388.3,957.3 491.1,954.6 500.6,1049.8 390.2,1051.5 · 319: 496.0,580.5 568.5,579.1 579.3,625.5 503.2,627.7 · 389: 552.5,954.8 655.2,952.6 677.1,1047.1 566.6,1049.0 · 415: 150.2,588.7 221.9,586.9 214.8,633.7 139.5,635.2 · 442: 519.3,736.0 604.6,734.1 619.4,798.0 529.0,799.7 · 449: 133.6,659.9 211.0,658.4 202.6,712.3 121.0,714.0 · 478: 486.7,519.5 554.2,516.5 563.4,557.5 492.6,559.7 · 484: 271.5,525.0 338.6,522.4 337.5,562.6 267.1,564.9 · 518: 114.2,743.7 198.3,740.8 188.2,804.7 99.0,807.4 · 523: 534.3,834.7 627.6,833.0 645.6,909.9 546.2,912.2 · 580: 63.0,961.0 164.2,959.7 149.8,1054.5 41.2,1054.7
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
+
+```text
+B (same page, 10 s later)
+tags     16 / 16 found, 16 / 16 used, err 0.91 / 0.92 px (0.42 / 0.42 mm on the paper)
+err by r centre 0.93 px (5032 corners), middle 0.87 (4200), edge 1.15 (300); edge corners +0.92 px radially (+ = further out than the fit)
+edges    tags +0.27 px bigger than printed vs the fit (10–90 %: +0.24 to +0.28 over 150 frames; − = smaller, edges placed towards the black), 6 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+fit      1130 px best (1130–1130 over 12 tilted frames; long-side FOV 59.0°, ?fov=59.0), err 0.59 px with it, 0.91 px with the f in use
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1130 (2059), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+corners  -3.4 s, outer corners 0 px/s, tilt 50°, 720×1280 fx 1152.3 fy 1152.3 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 89.4,842.3 181.5,840.2 169.3,917.7 71.7,918.9 · 115: 223.4,958.5 325.8,957.8 323.0,1052.9 213.4,1053.7 · 170: 377.9,522.1 445.6,520.3 449.9,560.9 379.3,562.6 · 252: 163.7,526.8 230.6,525.3 224.7,565.7 154.2,567.7 · 259: 505.9,652.4 584.4,651.1 596.9,705.1 514.1,707.2 · 287: 387.1,958.1 489.8,955.1 499.4,1050.7 388.8,1052.3 · 319: 495.2,580.9 567.8,579.6 578.6,626.0 502.5,628.1 · 389: 551.4,955.6 654.1,953.2 676.0,1048.1 565.4,1049.8 · 415: 149.3,589.1 221.1,587.1 213.9,634.1 138.5,635.7 · 442: 518.4,736.4 603.7,734.7 618.5,798.8 527.9,799.9 · 449: 132.8,660.0 210.0,658.9 201.6,712.6 119.9,714.6 · 478: 486.0,520.1 553.5,516.9 562.7,558.0 491.9,560.0 · 484: 270.8,525.1 337.7,522.8 336.8,563.0 266.3,565.1 · 518: 113.1,743.9 197.2,741.3 187.1,805.3 97.8,807.8 · 523: 533.2,834.7 626.7,834.2 644.7,910.8 545.1,912.7 · 580: 61.6,961.5 162.9,960.3 148.4,1055.0 39.6,1055.4
+
+C (after a reload)
+tags     16 / 16 found, 16 / 16 used, err 0.98 / 0.99 px (0.44 / 0.44 mm on the paper)
+err by r centre 1.02 px (5100 corners), middle 0.90 (4200), edge 1.39 (300); edge corners +1.20 px radially (+ = further out than the fit)
+edges    tags +0.25 px bigger than printed vs the fit (10–90 %: +0.24 to +0.26 over 150 frames; − = smaller, edges placed towards the black), 6 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     311 / 311 mm above the paper, tilt 50 / 50° from straight down
+motion   board centre 1 / 2 px/s in the image (≈ 0 / 0 px of blur at 10.0 ms)
+exposure 10.0 ms, continuous, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): refused or not applied: back to automatic
+focal    1152.3 px (provided); started from the one saved for camera 0, facing back (1152.3 px)
+fit      1127 px best (1126–1127 over 12 tilted frames; long-side FOV 59.2°, ?fov=59.2), err 0.58 px with it, 0.98 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.5 / 0.5 px, 0.2 / 0.2 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (1 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.5 px, f 1128 (150), 100–300 -, ≥ 300 -
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1128 (394), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1152.3 px (provided) · 1.4 s exposure refused 10.0 ms ISO 624
+corners  -4.2 s, outer corners 0 px/s, tilt 50°, 720×1280 fx 1152.3 fy 1152.3 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 89.5,842.1 181.5,839.6 169.2,917.0 71.7,918.7 · 115: 223.2,958.1 325.2,957.1 322.6,1052.1 213.2,1052.7 · 170: 377.7,522.4 445.1,520.5 449.3,561.4 378.4,562.8 · 252: 163.8,527.3 230.7,525.3 224.7,566.0 154.3,567.8 · 259: 505.1,652.3 583.4,651.0 595.9,704.7 513.2,707.1 · 287: 386.4,957.2 488.9,954.6 498.5,1049.7 388.3,1051.4 · 319: 494.3,580.8 567.0,580.0 577.7,626.2 501.7,628.2 · 389: 550.4,954.8 652.9,952.7 674.8,1047.3 564.4,1048.9 · 415: 149.4,589.3 221.1,587.3 213.9,634.1 138.5,635.8 · 442: 517.5,736.1 602.7,734.5 617.4,798.2 527.1,799.8 · 449: 132.8,659.9 210.0,658.9 201.6,712.6 120.1,714.4 · 478: 485.2,520.1 552.8,517.3 561.9,558.2 491.2,560.0 · 484: 270.6,525.4 337.7,523.1 336.4,563.3 266.1,565.3 · 518: 113.2,743.7 197.2,741.1 187.1,804.7 98.0,807.6 · 523: 532.5,834.7 625.5,833.3 643.5,910.1 544.2,912.1 · 580: 61.8,961.0 162.8,959.7 148.3,1054.3 39.7,1054.6
+
+D (after another reload)
+tags     16 / 16 found, 16 / 16 used, err 0.97 / 0.98 px (0.44 / 0.44 mm on the paper)
+err by r centre 1.01 px (5100 corners), middle 0.89 (4200), edge 1.33 (300); edge corners +1.13 px radially (+ = further out than the fit)
+edges    tags +0.23 px bigger than printed vs the fit (10–90 %: +0.22 to +0.23 over 150 frames; − = smaller, edges placed towards the black), 6 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     311 / 311 mm above the paper, tilt 50 / 50° from straight down
+motion   board centre 1 / 2 px/s in the image (≈ 0 / 0 px of blur at 4.0 ms)
+focal    1152.3 px (provided); started from the one saved for camera 0, facing back (1152.3 px)
+fit      1127 px best (1127–1127 over 12 tilted frames; long-side FOV 59.2°, ?fov=59.2), err 0.56 px with it, 0.98 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.5 / 0.5 px, 0.2 / 0.2 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (1 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.5 px, f 1128 (150), 100–300 -, ≥ 300 -
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1128 (584), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1152.3 px (provided) · 1.4 s exposure short 4.0 ms ISO 624
+corners  -3.5 s, outer corners 1 px/s, tilt 50°, 720×1280 fx 1152.3 fy 1152.3 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 89.9,842.2 181.7,839.6 169.6,916.9 72.2,918.5 · 115: 223.6,958.0 325.5,956.9 322.8,1051.9 213.7,1052.6 · 170: 377.7,522.4 445.2,520.6 449.5,561.4 378.7,562.7 · 252: 163.9,527.4 230.8,525.4 224.9,566.1 154.6,567.8 · 259: 505.3,652.3 583.6,651.1 596.0,704.8 513.4,707.0 · 287: 386.7,957.2 489.1,954.5 498.7,1049.5 388.7,1051.3 · 319: 494.6,580.9 567.1,579.9 577.8,626.1 501.8,628.2 · 389: 550.7,954.8 653.1,952.6 674.9,1047.1 564.7,1048.8 · 415: 149.6,589.5 221.3,587.2 214.2,634.1 138.8,635.9 · 442: 517.7,736.2 602.9,734.4 617.5,798.1 527.3,799.7 · 449: 133.1,659.9 210.2,658.9 201.9,712.5 120.4,714.3 · 478: 485.4,520.1 552.9,517.4 562.0,558.2 491.3,560.1 · 484: 270.8,525.6 337.7,523.1 336.7,563.2 266.3,565.4 · 518: 113.6,743.7 197.5,741.2 187.3,804.8 98.3,807.4 · 523: 532.7,834.7 625.6,833.3 643.6,910.0 544.4,911.9 · 580: 62.2,961.0 163.0,959.7 148.6,1054.2 40.2,1054.5
+```
+
+### 2026-10-25, Android, Chrome 155: four orientations and the lens centre (Vercel)
+
+The next test from the section above: `?exposure=4&edgeGamma=2.6`, the phone
+propped at 45–51° tilt and 210–270 mm above the paper, turned clockwise in
+its own plane a quarter turn at a time from the normal way up. Each
+orientation was a new page load: each report's `history` starts at 0, and its
+`centre` line has one side. The first report (normal way up) was copied before
+the camera started (all `-`), so the top view below is report D of the 50° run
+above. That run's camera kept its picture across reloads.
+
+- **The paper receding towards each edge, one-frame f with the lens centre at
+  the image centre:** top 1128 (50° run, D), left 1122 (turned 90°
+  clockwise), bottom 1098 (upside down), right 1123 px (270° clockwise).
+  Top and bottom differ by 2.7 %; left and right agree.
+- **A joint fit of the four `corners` lines** (a pose per view, one f and one
+  lens centre for all, Levenberg–Marquardt; the same result from f 1050 and
+  1200 px):
+  - lens centre at the image centre: f 1120 px, 1.00 px RMS;
+  - lens centre free: (−1.3, +18.7) px from the image centre (+ = right,
+    down), f 1120 px, 0.68 px RMS;
+  - the board's upper half only (tag rows at z ≤ 24 mm): (−2.7, +20.1) px,
+    f 1110 px, 0.50 → 0.40 px RMS; the lower half only: (−0.4, +18.6) px,
+    f 1125 px.
+- **With that lens centre the four views agree.** One-frame f for the upper
+  half at (−2.7, +20.1): top 1109, right 1112, bottom 1109, left 1109 px. For
+  all tags at (−1.3, +18.7): 1112, 1122, 1116 and 1121 px. Top and bottom
+  together match left and right, so the pixels are square: aspect 1.0007 in the
+  upper-half fit.
+- **No lens distortion to speak of.** One radial term takes the all-tag fit
+  from 0.68 to 0.65 px (5 px at the image corner) and does nothing for the
+  upper half (0.1 px at the corner); a second term swings both ways. The
+  large `err by r` edge values in the left and right views (2.6 and 3.1 px)
+  are the board's bottom row (tags 115, 287, 389 and 580, z = 121 mm), which
+  lies along the image edge in those views.
+- **The board's lower half doesn't fit as well in any view.** `refit-corners`
+  halves (board z, upper / lower): 0.35 / 0.94 px (left), 0.35 / 0.53 px
+  (bottom), 0.41 / 0.67 px (right), 0.43–0.46 / 0.47–0.53 px (50° run). So the
+  sheet near the page's bottom edge probably doesn't lie flat. It pulls the
+  all-tag f up by about 1 % against the upper half.
+- **What the lens centre does to the estimates.** With the lens centre assumed
+  at the image centre, the one-frame f is off by about (19 / 1110) · cot(tilt):
+  ±1.5 % at 50°, ±3.6 % at 25°, ±4.7 % at 20°. It reads low when the paper
+  recedes towards the bottom of the image and high towards the top. At the
+  estimator's 20° minimum that spans about 1060–1160 px, so a jump to one
+  view's f can land anywhere in it. The pose fits worse too: 1.00 px against
+  0.68 px in the joint fit.
+- **`edges`:** +0.05 to +0.08 px.
+- The saved f moved between loads (1129.2, 1120.1, 1117.7 px): the estimator
+  measured new values while the phone was being turned.
+
+Next: the demo's new `?centre=-2,19` (set on the saved calibration) against no
+`?centre=`, two sessions each, alternating, with the sheet taped flat. In each,
+hand-held, look at the paper from all four sides at 30–50° tilt, holding still
+about 2 s on each, until the focal length is estimated, then copy a report. In
+the first `?centre=` session, also hold the phone on each side and upside down
+for a few seconds, so that its `centre` line has all four edges. Compare
+`err`, `fit` and the estimates, and whether the `centre` line's sides agree.
+
+```text
+left (turned 90° clockwise)
+tags     16 / 16 found, 16 / 16 used, err 1.15 / 1.16 px (0.44 / 0.45 mm on the paper)
+err by r centre 0.88 px (2100 corners), middle 1.12 (7200), edge 2.59 (300); edge corners −1.45 px radially (+ = further out than the fit)
+edges    tags +0.08 px bigger than printed vs the fit (10–90 %: +0.07 to +0.09 over 150 frames; − = smaller, edges placed towards the black), 38 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     213 / 213 mm above the paper, tilt 51 / 51° from straight down
+focal    1129.2 px (provided); started from the one saved for camera 0, facing back (1129.2 px)
+fit      1122 px best (1121–1122 over 12 tilted frames; long-side FOV 59.4°, ?fov=59.4), err 1.10 px with it, 1.15 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 0.8 px, 0.3 / 0.3 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (1 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.8 px, f 1122 (150), 100–300 -, ≥ 300 -
+centre   one-frame f by the image edge the paper recedes towards, since Start: top - (0), bottom - (0), left 1122 (331), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+corners  -0.4 s, outer corners 0 px/s, tilt 51°, 720×1280 fx 1129.2 fy 1129.2 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 433.1,940.3 430.5,828.4 516.4,847.8 518.0,968.7 · 115: 563.0,782.0 561.5,651.3 674.9,656.4 675.9,799.4 · 170: 102.3,584.0 99.0,505.0 137.1,499.3 140.6,583.1 · 252: 112.5,831.6 110.0,755.3 148.1,763.8 151.2,844.7 · 259: 227.6,428.7 224.4,332.4 279.8,313.4 283.7,416.4 · 287: 562.3,572.1 559.3,437.8 673.8,421.8 674.9,569.2 · 319: 156.0,444.0 153.1,356.8 198.8,341.3 202.3,433.9 · 389: 559.6,356.7 554.6,220.0 668.6,181.8 672.6,332.5 · 415: 172.4,851.9 169.2,768.9 215.0,779.1 217.8,867.3 · 442: 314.5,409.7 310.5,302.9 379.5,279.3 383.3,394.6 · 449: 242.7,875.6 240.6,784.7 295.0,797.4 298.1,894.5 · 478: 97.6,456.8 93.1,377.0 131.9,363.9 135.3,448.6 · 484: 108.3,708.7 104.0,631.4 141.9,633.1 146.1,714.9 · 518: 328.6,904.7 324.8,804.4 392.6,819.9 395.4,927.4 · 523: 421.3,386.0 418.4,266.0 505.2,236.4 509.3,367.3 · 580: 566.5,985.0 564.8,858.5 676.3,883.0 675.8,1021.1
+
+bottom (upside down)
+tags     15 / 15 found, 15 / 15 used, err 0.82 / 0.82 px (0.35 / 0.35 mm on the paper)
+err by r centre 0.65 px (3278 corners), middle 0.90 (5662), edge - (0)
+edges    tags +0.06 px bigger than printed vs the fit (10–90 %: +0.06 to +0.07 over 149 frames; − = smaller, edges placed towards the black), 33 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     270 / 270 mm above the paper, tilt 45 / 45° from straight down
+focal    1120.1 px (provided); started from the one saved for camera 0, facing back (1120.1 px)
+fit      1100 px best (1100–1100 over 12 tilted frames; long-side FOV 60.4°, ?fov=60.4), err 0.54 px with it, 0.82 px with the f in use
+calib    149 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.5 / 0.5 px, 0.2 / 0.2 mm on the paper), 149 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (1 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.5 px, f 1098 (149), 100–300 -, ≥ 300 -
+centre   one-frame f by the image edge the paper recedes towards, since Start: top - (0), bottom 1098 (402), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+corners  -0.4 s, outer corners 0 px/s, tilt 45°, 720×1280 fx 1120.1 fy 1120.1 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 635.5,581.2 534.4,576.9 546.9,496.1 654.7,501.3 · 115: 487.2,449.8 376.2,445.0 377.7,345.2 496.8,350.1 · 170: 325.9,891.4 254.8,887.4 250.1,846.5 324.5,850.6 · 252: 556.4,905.6 484.2,900.5 490.4,860.0 566.5,864.6 · 259: 188.9,747.8 107.4,743.3 93.2,687.7 179.4,691.8 · 287: 310.3,440.8 200.9,437.3 189.7,338.0 307.1,342.2 · 319: 201.1,821.7 125.7,817.2 114.0,769.5 193.1,773.7 · 415: 571.9,842.2 494.1,837.7 501.2,790.3 583.4,795.2 · 442: 174.4,661.0 85.3,656.9 68.6,590.8 163.1,595.0 · 449: 589.6,769.4 505.1,764.2 513.9,709.3 603.4,713.5 · 478: 211.6,884.1 141.5,881.3 131.2,839.7 204.7,843.8 · 484: 440.8,897.6 369.0,894.4 369.7,853.9 444.9,857.4 · 518: 610.6,683.3 518.7,679.3 528.8,613.3 626.7,617.3 · 523: 156.8,558.4 59.5,554.4 39.5,474.8 143.4,477.8 · 580: 665.2,456.4 553.5,452.1 568.2,352.6 688.7,358.4
+
+right (turned 270° clockwise)
+tags     16 / 16 found, 15 / 15 used, err 0.98 / 0.98 px (0.39 / 0.39 mm on the paper)
+err by r centre 0.87 px (1950 corners), middle 0.91 (6900), edge 3.11 (150); edge corners −2.29 px radially (+ = further out than the fit)
+edges    tags +0.05 px bigger than printed vs the fit (10–90 %: +0.04 to +0.07 over 150 frames; − = smaller, edges placed towards the black), 43 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     210 / 210 mm above the paper, tilt 49 / 49° from straight down
+focal    1117.7 px (provided); started from the one saved for camera 0, facing back (1117.7 px)
+fit      1118 px best (1117–1118 over 12 tilted frames; long-side FOV 59.6°, ?fov=59.6), err 0.98 px with it, 0.98 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.6 / 0.6 px, 0.2 / 0.2 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (1 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.6 px, f 1123 (150), 100–300 -, ≥ 300 -
+centre   one-frame f by the image edge the paper recedes towards, since Start: top - (0), bottom - (0), left - (0), right 1123 (390); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+corners  -4.0 s, outer corners 0 px/s, tilt 49°, 720×1280 fx 1117.7 fy 1117.7 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 304.5,382.0 303.3,503.5 211.5,492.2 213.6,360.2 · 115: 160.0,567.7 158.5,704.3 39.1,711.0 39.7,561.2 · 170: 638.5,724.1 636.8,803.9 596.7,813.7 598.3,729.3 · 252: 645.0,465.2 642.5,546.3 602.2,541.3 604.5,455.4 · 259: 498.5,894.0 496.9,988.1 439.2,1012.6 440.4,911.9 · 287: 156.4,785.0 156.7,919.8 37.9,947.1 38.1,799.9 · 319: 573.6,871.4 571.2,957.1 523.5,976.9 525.2,886.2 · 389*: 154.3,999.2 156.2,1131.6 40.0,1179.6 38.1,1034.3 · 415: 582.3,449.9 580.1,538.5 532.0,532.6 534.3,438.0 · 442: 408.2,921.6 407.1,1026.3 336.4,1056.0 336.8,943.8 · 449: 508.1,431.8 505.0,529.2 447.5,521.8 449.3,417.4 · 478: 634.6,852.6 634.3,931.2 593.3,948.2 595.5,864.7 · 484: 641.0,595.2 640.0,675.8 600.4,678.1 601.2,593.0 · 518: 416.8,409.4 415.9,517.7 344.0,508.4 345.3,392.0 · 523: 296.9,956.5 295.9,1072.8 207.0,1110.4 206.1,983.8 · 580: 161.1,347.9 159.8,485.5 40.0,470.9 42.5,319.7
+```
+
+### 2026-10-25, Android, Chrome 155: hand-held with and without `?centre=` (Vercel)
+
+Four hand-held sessions at 40–45° tilt and 420–437 mm above the paper, looking
+from all four sides, alternating `?centre=-2,19` and no `?centre=`, with the
+sheet taped down. Test 1's link lost its `,19` (`url …&centre=-2`), so it ran
+with the image centre; the demo didn't say so then and does now. Test 1 also
+held the phone on each side and upside down. Tests 3 and 4 ran in dimmer light
+(ISO 1249 against 624).
+
+- **The lens centre, hand-held:** Test 1's `centre` line, all four edges, with
+  the image centre: top 1125, bottom 1093, left 1103, right 1106 px; lens
+  centre (−1, +15) px, f 1105 px, the sides within ±0.1 % (±1.1 % with the
+  image centre). The propped fit gave (−1 to −3, +17 to +20).
+- **The estimates:** with the image centre, 1123.9 and 1128.4 px (Tests 2 and
+  4, the paper receding towards the top) and 1113.6 px (Test 1, all four
+  edges); with (−2, +19), 1094.3 px (Test 3, `fit` 1101). Each test's last
+  frame gives a one-frame f of 1123–1125 px with the image centre for the top
+  views (1104 in Test 1), and 1101–1104 px for all four with (−1.3, +18.7).
+- **`err` doesn't change:** 0.81, 0.83 and 0.83 px in Tests 2–4 (1.00 in Test
+  1), the same as the homography fit (0.80, 0.80 and 0.83 px). With the paper
+  receding towards one edge, the focal estimate makes up for the lens centre
+  (about 2 % high here), and the pose fits the tags as well as any homography
+  can. So the lens centre shows in the focal length, and with it the scale
+  (distances about 2 % long), not in how the content sits on the tags.
+- **The corners set the limit:** the homography fit is 0.75–0.83 px hand-held,
+  against 0.48–0.55 px propped. The board's left half alone fits to
+  0.44–0.55 px and its right half (board +x) to 0.71–0.80 px, in all four tests
+  and from different sides, so that part of the sheet probably isn't flat now
+  (in the propped runs it was the lower half). Taking out the tag expansion
+  leaves 0.68–0.71 px.
+- **`edges`:** +0.12 and +0.13 px at ISO 624, −0.21 and −0.24 px at ISO 1249,
+  so the offset follows the light.
+- The hand-held f with the lens centre, about 1102 px, is about 1 % under the
+  propped fit at 210–310 mm (1110 px on the upper half, 1120 px with all
+  tags). Focus breathing at the closer distance would go that way; not
+  tested.
+
+```text
+Test 1 (link cut to ?centre=-2: the image centre)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=2.6&centre=-2
+tags     16 / 16 found, 16 / 16 used, err 1.00 / 1.04 px (0.61 / 0.63 mm on the paper)
+edges    tags +0.12 px bigger than printed vs the fit (10–90 %: +0.07 to +0.17 over 150 frames; − = smaller, edges placed towards the black), 41 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     435 / 437 mm above the paper, tilt 45 / 45° from straight down
+focal    1113.6 px (estimated ±0.41 %); started from the one saved for camera 0, facing back (1106.4 px); measured one saved for camera 0, facing back; first estimate 4.4 s after the first frame it could use
+fit      1110 px best (1104–1116 over 12 tilted frames; long-side FOV 59.9°, ?fov=59.9), err 0.99 px with it, 0.99 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 0.8 px, 0.4 / 0.4 mm on the paper), 150 of them under 1 px or 1 mm, from 1 directions ≥ 10° apart (16 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.8 px, f 1106 (121), 100–300 0.8 px, f 1102 (24), ≥ 300 0.8 px, f 1101 (5)
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1125 (659), bottom 1093 (187), left 1103 (150), right 1106 (165); lens centre x −1, y +15 px from the image centre (+ = right, down): f 1105 px, the sides' f ±0.1 % (±1.1 % with the image centre)
+corners  -0.9 s, outer corners 5 px/s, tilt 45°, 720×1280 fx 1113.6 fy 1113.6 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 411.9,559.8 373.2,558.0 372.0,500.7 410.5,504.3 · 115: 347.6,468.9 304.2,463.6 302.4,402.3 346.7,409.9 · 170: 284.4,923.8 235.8,937.6 235.0,874.3 283.1,863.3 · 252: 416.0,887.1 376.9,897.4 376.6,841.6 415.4,833.1 · 259: 201.0,750.7 147.1,757.7 146.0,688.4 199.3,684.5 · 287: 276.0,460.6 226.3,454.9 224.4,388.9 274.8,397.5 · 319: 202.7,848.6 150.0,860.1 147.9,791.7 202.0,783.0 · 389: 193.8,451.3 140.0,444.2 138.0,373.7 193.1,383.6 · 415: 415.0,806.0 376.5,813.7 375.3,757.6 414.4,752.0 · 442: 198.4,651.8 145.1,653.9 143.1,584.3 197.0,585.1 · 449: 414.2,724.9 374.5,729.5 374.4,672.4 413.1,670.0 · 478: 205.3,945.8 152.3,962.4 150.3,894.0 204.3,880.9 · 484: 353.5,904.2 311.5,916.2 310.3,857.1 352.9,847.4 · 518: 413.1,642.4 374.5,644.1 373.5,586.7 411.9,587.4 · 523: 197.0,551.6 142.2,549.5 140.5,479.4 195.2,484.9 · 580: 409.9,476.5 371.6,471.8 370.3,413.9 409.0,420.6
+
+Test 2 (no ?centre=)
+tags     16 / 16 found, 16 / 16 used, err 0.81 / 0.82 px (0.52 / 0.53 mm on the paper)
+edges    tags +0.13 px bigger than printed vs the fit (10–90 %: +0.07 to +0.18 over 150 frames; − = smaller, edges placed towards the black), 42 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     425 / 431 mm above the paper, tilt 43 / 44° from straight down
+focal    1123.9 px (estimated ±0.28 %); started from the one saved for camera 0, facing back (1113.6 px); measured one saved for camera 0, facing back; first estimate 3.1 s after the first frame it could use
+fit      1124 px best (1118–1126 over 12 tilted frames; long-side FOV 59.3°, ?fov=59.3), err 0.81 px with it, 0.81 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 0.8 px, 0.4 / 0.4 mm on the paper), 150 of them under 1 px or 1 mm, from 4 directions ≥ 10° apart (16 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.8 px, f 1125 (104), 100–300 0.7 px, f 1123 (44), ≥ 300 0.8 px, f 1121 (2)
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1126 (546), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+corners  -0.0 s, outer corners 6 px/s, tilt 43°, 720×1280 fx 1123.9 fy 1123.9 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 235.8,536.6 235.7,576.5 176.3,579.5 178.7,539.8 · 115: 144.3,605.1 140.6,650.1 77.3,653.9 83.3,608.7 · 170: 613.7,653.5 628.9,702.1 564.5,705.6 551.9,656.8 · 252: 573.1,520.3 584.7,560.2 527.1,562.7 517.4,523.1 · 259: 439.2,745.0 448.0,798.7 377.2,802.9 371.4,748.8 · 287: 138.6,679.3 134.2,730.2 66.8,734.3 73.5,682.4 · 319: 539.3,738.9 552.2,792.1 482.5,796.4 472.4,742.5 · 389: 132.1,762.7 127.2,817.8 54.1,822.8 62.6,766.4 · 415: 489.9,524.3 498.7,563.7 440.9,566.9 433.9,526.7 · 442: 337.6,751.0 341.8,804.9 270.8,809.5 269.8,754.8 · 449: 405.9,528.0 411.8,568.5 353.5,571.0 349.6,530.9 · 478: 638.0,732.9 656.1,785.5 586.8,790.0 572.2,736.4 · 484: 592.1,584.1 605.4,626.5 545.0,629.5 533.7,586.5 · 518: 321.3,532.1 324.0,572.1 264.8,574.8 264.3,535.1 · 523: 235.6,756.3 234.5,811.8 163.2,815.9 166.8,760.4 · 580: 149.8,541.1 146.6,580.8 86.7,584.1 92.0,543.9
+
+Test 3 (?centre=-2,19)
+tags     16 / 16 found, 16 / 16 used, err 0.83 / 0.87 px (0.56 / 0.57 mm on the paper)
+edges    tags −0.21 px bigger than printed vs the fit (10–90 %: −0.38 to −0.13 over 150 frames; − = smaller, edges placed towards the black), 78 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     420 / 425 mm above the paper, tilt 40 / 41° from straight down
+exposure 4.0 ms, none, ISO 1249, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1094.3 px (estimated ±0.33 %); started from the one saved for camera 0, facing back (1123.9 px, camera names listed after a permission prompt); lens centre x −2, y +19 px from the image centre (?centre=); measured one saved for camera 0, facing back; first estimate 3.2 s after the first frame it could use
+fit      1101 px best (1082–1109 over 12 tilted frames; long-side FOV 60.3°, ?fov=60.3), err 0.82 px with it, 0.84 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 0.9 px, 0.5 / 0.5 mm on the paper), 150 of them under 1 px or 1 mm, from 5 directions ≥ 10° apart (15 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.8 px, f 1102 (101), 100–300 0.8 px, f 1104 (21), ≥ 300 0.8 px, f 1096 (28)
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1102 (551), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+corners  -0.1 s, outer corners 5 px/s, tilt 41°, 720×1280 fx 1094.3 fy 1094.3 cx 357.5 cy 658.5; id: TL TR BR BL px (* not used) · 67: 247.9,484.4 251.3,521.7 194.9,526.7 193.8,490.1 · 115: 166.0,553.1 167.1,594.4 106.4,601.3 107.6,558.9 · 170: 618.3,576.2 635.6,619.9 575.3,625.9 560.1,581.9 · 252: 570.5,454.2 584.2,490.7 530.0,495.5 518.0,459.2 · 259: 459.4,668.2 471.7,716.3 405.7,723.9 396.1,675.3 · 287: 167.2,622.0 168.3,668.8 104.0,675.8 105.2,627.9 · 319: 553.6,658.0 569.6,705.4 504.6,712.7 491.0,664.6 · 389: 168.9,699.2 169.4,749.7 100.5,757.3 102.8,706.3 · 415: 491.0,461.7 502.4,497.6 447.9,503.3 438.2,466.6 · 442: 363.7,678.9 371.9,727.4 305.3,734.9 299.3,685.4 · 449: 411.2,469.1 419.8,506.4 364.4,510.8 357.6,474.1 · 478: 646.2,647.9 666.5,694.2 602.1,701.8 584.6,654.2 · 484: 593.1,512.8 608.3,551.1 551.5,556.8 538.0,517.7 · 518: 329.9,476.8 336.0,513.3 280.2,518.6 275.9,481.8 · 523: 266.5,688.5 271.3,738.6 203.9,745.8 201.8,695.5 · 580: 165.3,492.7 166.0,529.8 108.8,535.5 110.1,497.8
+
+Test 4 (no ?centre=)
+tags     16 / 16 found, 16 / 16 used, err 0.83 / 0.89 px (0.54 / 0.55 mm on the paper)
+edges    tags −0.24 px bigger than printed vs the fit (10–90 %: −0.35 to −0.13 over 150 frames; − = smaller, edges placed towards the black), 78 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     423 / 428 mm above the paper, tilt 42 / 42° from straight down
+focal    1128.4 px (estimated ±0.27 %); started from the one saved for camera 0, facing back (1094.3 px); measured one saved for camera 0, facing back; first estimate 2.9 s after the first frame it could use
+fit      1125 px best (1113–1131 over 12 tilted frames; long-side FOV 59.3°, ?fov=59.3), err 0.82 px with it, 0.82 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 0.9 px, 0.5 / 0.5 mm on the paper), 150 of them under 1 px or 1 mm, from 5 directions ≥ 10° apart (17 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.8 px, f 1124 (93), 100–300 0.8 px, f 1126 (39), ≥ 300 0.8 px, f 1122 (18)
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1127 (493), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+corners  -1.3 s, outer corners 7 px/s, tilt 42°, 720×1280 fx 1128.4 fy 1128.4 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 216.1,491.9 219.9,528.7 162.7,536.0 161.0,498.5 · 115: 133.7,563.0 134.8,604.5 73.8,613.2 74.8,570.6 · 170: 591.7,573.1 609.9,616.4 549.1,624.4 533.0,580.6 · 252: 540.9,452.3 555.5,488.2 501.2,494.7 488.1,458.5 · 259: 432.6,670.4 445.7,718.7 378.8,728.0 368.3,679.4 · 287: 135.4,632.4 137.0,679.5 71.7,688.8 73.0,640.4 · 319: 527.8,657.3 544.7,704.5 479.1,713.7 464.7,665.6 · 389: 138.3,710.3 138.6,761.4 69.1,771.3 71.1,719.3 · 415: 461.3,461.8 473.1,497.7 418.1,505.0 407.9,468.0 · 442: 335.4,683.8 344.6,732.5 277.1,742.2 270.7,692.2 · 449: 380.5,471.4 389.9,508.6 334.0,514.9 326.6,478.2 · 478: 620.9,643.9 642.3,690.4 577.5,699.6 559.1,652.3 · 484: 564.8,510.0 580.9,547.9 523.8,555.4 509.4,516.7 · 518: 298.4,481.5 305.3,518.3 248.8,525.2 244.0,488.2 · 523: 237.2,696.3 242.6,747.0 173.9,756.4 171.9,705.4 · 580: 132.2,502.5 133.4,539.2 75.4,547.0 76.4,509.1
+```

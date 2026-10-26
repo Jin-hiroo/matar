@@ -17,6 +17,8 @@ interface DebugEvent {
   w: number;
   h: number;
   fx: number;
+  cx: number;
+  cy: number;
 }
 interface DebugState {
   events: DebugEvent[];
@@ -271,6 +273,23 @@ test('a measured focal length is saved and the next Start begins from it; ?fresh
   const report = await copyReport();
   expect(report).toMatch(/focal {4}[\d.]+ px \((provided|estimated)/);
   expect(report).toMatch(/started from (the one saved for|a saved one)/);
+
+  // ?centre= moves the saved calibration's lens centre; the next load without it is back at the image centre
+  const [cx0, cy0] = [(truth.width - 1) / 2, (truth.height - 1) / 2];
+  requests.push(...(await startDemo(page, '&centre=-2,19')));
+  const shifted = (await waitForEvents(page, 5)).events[0]!;
+  expect([shifted.cx, shifted.cy]).toEqual([cx0 - 2, cy0 + 19]);
+  expect(await copyReport()).toMatch(
+    /lens centre x −2, y \+19 px from the image centre \(\?centre=\)/,
+  );
+  requests.push(...(await startDemo(page, '')));
+  const plain = (await waitForEvents(page, 5)).events[0]!;
+  expect([plain.cx, plain.cy]).toEqual([cx0, cy0]);
+  // a link cut at the comma: said so, and the image centre used
+  requests.push(...(await startDemo(page, '&centre=-2')));
+  const cut = (await waitForEvents(page, 5)).events[0]!;
+  expect([cut.cx, cut.cy]).toEqual([cx0, cy0]);
+  expect(await copyReport()).toMatch(/\?centre=-2 not used: give it as dx,dy px/);
 
   requests.push(
     ...(await startDemo(page, '&fresh', async () => {

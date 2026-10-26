@@ -135,7 +135,9 @@ paper and the video lagged behind the camera.
   detector's `edgeGamma` moves every edge alike), and `?edgeGamma=` sets
   `detector.edgeGamma`; a `centre` line splits the one-frame focal length since
   Start by the image edge the paper recedes towards and fits the lens centre that
-  makes opposite edges agree (the self-calibration takes the image centre).
+  makes opposite edges agree (the self-calibration takes the lens centre it starts
+  with, the image centre unless given). `?centre=dx,dy` starts the saved calibration
+  from a lens centre that far from the image centre, px.
 - `TrackerOptions.camera.maxExposureMs` (opt-in): a shorter exposure against motion
   blur. About 1 s after the camera opens, an automatic exposure longer than this is
   set to it with the ISO raised by the same factor (Image Capture manual exposure,

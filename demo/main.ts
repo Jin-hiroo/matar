@@ -12,7 +12,8 @@
  * from instead of the 68° prior; the report's `fit` line suggests one),
  * `?exposure=4` (`camera.maxExposureMs`: a shorter exposure against motion
  * blur, ms, where the camera allows it, the ISO raised to keep the
- * brightness),
+ * brightness), `?edgeGamma=2.6` (`detector.edgeGamma`), `?centre=-2,19`
+ * (the lens centre, px from the image centre, set on the saved calibration),
  * `?fresh` (forget the saved calibration). The focal length the tracker
  * measures is saved in `localStorage` with the camera's label; the next
  * Start opens that camera and begins from it (`TrackerOptions.intrinsics`),
@@ -59,6 +60,12 @@ const fovDeg = Number(params.get('fov'));
 const exposureReqMs = Number(params.get('exposure'));
 /** `?edgeGamma=`: `detector.edgeGamma`, the camera tone curve the detector assumes at tag edges */
 const edgeGamma = Number(params.get('edgeGamma'));
+/**
+ * `?centre=dx,dy`: the lens centre to start from, px from the image centre
+ * (+ = right, down), set on the saved calibration (the frame size comes from
+ * it); without it the saved one starts from the image centre
+ */
+const centreOffset = parseCentre(params.get('centre'));
 /** what became of it (the newest pose event's `stats.camera.exposure`), for the report */
 let exposureStats: CameraExposure | null = null;
 
@@ -105,6 +112,8 @@ interface DebugState {
     w: number;
     h: number;
     fx: number;
+    cx: number;
+    cy: number;
   }[];
   errors: string[];
   states: string[];
@@ -142,13 +151,26 @@ async function start(): Promise<void> {
     if (asked) found = await deviceIdFor(saved.label);
   }
   const deviceId = found?.deviceId ?? null;
-  const restore = saved && deviceId ? { intrinsics: saved.intrinsics, camera: { deviceId } } : null;
+  const restore =
+    saved && deviceId
+      ? { intrinsics: withCentre(saved.intrinsics, centreOffset), camera: { deviceId } }
+      : null;
+  const signed = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v)}`;
+  const centreNote = !centreOffset
+    ? params.has('centre')
+      ? `; ?centre=${params.get('centre')} not used: give it as dx,dy px`
+      : ''
+    : restore
+      ? `; lens centre x ${signed(centreOffset[0])}, y ${signed(centreOffset[1])} px from the image centre (?centre=)`
+      : '; ?centre= not used: it needs a saved calibration for the frame size';
   // kept when a measurement is saved: why this run started where it did
-  const startNote = saved
-    ? restore
-      ? `started from the one saved for ${saved.label} (${saved.intrinsics.fx.toFixed(1)} px${asked ? ', camera names listed after a permission prompt' : ''})`
-      : `the one saved for ${saved.label} not used: ${found?.labelled === false ? 'no camera names listed before Start' : 'no camera of that name listed before Start'}`
-    : `nothing saved used${params.has('fresh') ? ' (?fresh)' : fovDeg ? ' (?fov=)' : ''}`;
+  const startNote =
+    (saved
+      ? restore
+        ? `started from the one saved for ${saved.label} (${saved.intrinsics.fx.toFixed(1)} px${asked ? ', camera names listed after a permission prompt' : ''})`
+        : `the one saved for ${saved.label} not used: ${found?.labelled === false ? 'no camera names listed before Start' : 'no camera of that name listed before Start'}`
+      : `nothing saved used${params.has('fresh') ? ' (?fresh)' : fovDeg ? ' (?fov=)' : ''}`) +
+    centreNote;
   calibrationNote = startNote;
   const tracker = createTracker({
     board,
@@ -320,6 +342,8 @@ async function start(): Promise<void> {
         w: e.intrinsics.width,
         h: e.intrinsics.height,
         fx: e.intrinsics.fx,
+        cx: e.intrinsics.cx,
+        cy: e.intrinsics.cy,
       });
       if (dbg.events.length > 2000) dbg.events.shift();
       if (e.thumbnail) drawThumb(e.thumbnail.width, e.thumbnail.height, e.thumbnail.data);
@@ -427,6 +451,23 @@ async function askCameraPermission(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** `?centre=dx,dy` → [dx, dy] px (each within ±200), else null */
+function parseCentre(s: string | null): [number, number] | null {
+  const v = s?.split(',').map((x) => (x.trim() === '' ? NaN : Number(x)));
+  return v?.length === 2 && v.every((x) => Number.isFinite(x) && Math.abs(x) <= 200)
+    ? [v[0]!, v[1]!] // `!`: length 2
+    : null;
+}
+
+/** `k` with its lens centre `offset` px from the image centre (the image centre if null). */
+function withCentre(k: CameraIntrinsics, offset: [number, number] | null): CameraIntrinsics {
+  return {
+    ...k,
+    cx: (k.width - 1) / 2 + (offset?.[0] ?? 0),
+    cy: (k.height - 1) / 2 + (offset?.[1] ?? 0),
+  };
 }
 
 function saveCalibration(c: SavedCalibration): void {

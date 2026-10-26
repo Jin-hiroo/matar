@@ -340,10 +340,12 @@ export class Report {
 
   /**
    * The `centre` line: the one-frame f of the frames kept since Start, by the
-   * image edge the paper recedes towards, and the lens centre that brings
-   * opposite edges' f together (a grid search over the axes that have both
-   * edges; each side's f is the median of up to CENTRE_PER_SIDE frames). Only
-   * frames from the latest frame's camera and image geometry count.
+   * image edge the paper recedes towards (with the lens centre in use), and
+   * the lens centre that brings opposite edges' f together (a grid search
+   * around the lens centre in use over the axes that have both edges; each
+   * side's f is the median of up to CENTRE_PER_SIDE frames), given from the
+   * image centre. Only frames from the latest frame's camera and image
+   * geometry count.
    */
   private centreLine(): string {
     const last = this.centreFrames.at(-1);
@@ -413,14 +415,24 @@ export class Report {
     if (!Number.isFinite(bestS.pct)) {
       return `${head}; lens centre not fitted (no one-frame f on a side at any lens centre tried)`;
     }
-    const atCentre = spread([0, 0]).pct;
+    // the lens centre in use, px from the image centre (not 0 with the demo's ?centre=)
+    const base: Vec2 = [k.cx - (k.width - 1) / 2, k.cy - (k.height - 1) / 2];
+    const shifted = base[0] !== 0 || base[1] !== 0;
+    const pctAt = (o: Vec2) => {
+      const pct = spread(o).pct;
+      return Number.isFinite(pct) ? pct.toFixed(1) : '-';
+    };
     const int = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(0)}`;
     const edge = Math.max(Math.abs(best[0]), Math.abs(best[1])) >= CENTRE_RANGE_PX;
-    return `${head}; lens centre ${fitX ? `x ${int(best[0])}` : 'x not fitted (needs left and right)'}, ${
-      fitY ? `y ${int(best[1])}` : 'y not fitted (needs top and bottom)'
-    } px from the image centre (+ = right, down): f ${bestS.f.toFixed(0)} px, the sides' f ±${bestS.pct.toFixed(1)} % (±${
-      Number.isFinite(atCentre) ? atCentre.toFixed(1) : '-'
-    } % with the image centre)${edge ? `, at the edge of the ±${CENTRE_RANGE_PX} px search` : ''}`;
+    return `${head}; lens centre ${fitX ? `x ${int(best[0] + base[0])}` : 'x not fitted (needs left and right)'}, ${
+      fitY ? `y ${int(best[1] + base[1])}` : 'y not fitted (needs top and bottom)'
+    } px from the image centre (+ = right, down): f ${bestS.f.toFixed(0)} px, the sides' f ±${bestS.pct.toFixed(1)} % (±${pctAt(
+      [-base[0], -base[1]],
+    )} % with the image centre${
+      shifted
+        ? `, ±${pctAt([0, 0])} % with the lens centre in use, x ${int(base[0])}, y ${int(base[1])}`
+        : ''
+    })${edge ? `, at the edge of the ±${CENTRE_RANGE_PX} px search around the lens centre in use` : ''}`;
   }
 
   addRender(sample: RenderSample): void {
