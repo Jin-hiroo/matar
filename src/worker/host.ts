@@ -98,8 +98,11 @@ function postResult(
   const transfer: Transferable[] = [];
   if (result.returned) transfer.push(result.returned);
   if (result.thumbnail) transfer.push(result.thumbnail.data);
-  if (intrinsics) post(intrinsics);
+  // the result first: it carries the intrinsics this frame was solved with and
+  // their source, from before the frame updated the estimate; posted after the
+  // update, it would put the tracker's focal source back to 'prior'
   post(result, transfer);
+  if (intrinsics) post(intrinsics);
 }
 
 function now(): number {

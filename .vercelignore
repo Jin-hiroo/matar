@@ -1,0 +1,10 @@
+# The demo deployment (vercel.json) needs only what `pnpm demo:build` reads.
+/*
+!/demo
+!/src
+!/package.json
+!/pnpm-lock.yaml
+!/pnpm-workspace.yaml
+!/tsconfig.json
+!/vercel.json
+/demo/dist

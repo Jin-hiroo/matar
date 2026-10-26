@@ -8,3 +8,4 @@ tests/out/
 *.tsbuildinfo
 .DS_Store
 .env*
+.vercel/

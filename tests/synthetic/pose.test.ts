@@ -369,6 +369,89 @@ describe('P4 outlier tags', () => {
     }
   });
 
+  it('keeps the tags stretched by motion blur (up to 3.7 px per side, centres in place)', () => {
+    // Blur longer than a cell moves both edges across the motion outward by
+    // ≈ (blur − cell) / 2: 16 px on 9 px cells gave 3.5–4 px on rendered frames
+    // (tests/synthetic/pipeline.test.ts). Modelled as a stretch along the
+    // motion, 3.7 px at the outermost corner. The strict test alone (every
+    // corner within 4 px) dropped tags in all 200 cases, kept 46 % of them, and
+    // the camera was 14.6 mm off (median, max 85 mm), content 100 mm above the
+    // board 3.4 mm (max 21 mm).
+    const seed = 408;
+    const rng = mulberry32(seed);
+    const noise = normalSampler(mulberry32(seed + 1));
+    const n = 200;
+    let used = 0;
+    let seen = 0;
+    const pos: number[] = [];
+    const overlay: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const truth = randomViewPose(rng, {
+        distanceMm: [380, 450],
+        tiltDeg: [0, 40],
+        rollDeg: [-30, 30],
+      });
+      const a = rng() * Math.PI; // image direction of the motion
+      const m: Vec2 = [Math.cos(a), Math.sin(a)];
+      const dets = observe(A4, K, truth, noise, 0.15).map((d) => {
+        const cu = d.corners.reduce((s, c) => s + c[0], 0) / 4;
+        const cv = d.corners.reduce((s, c) => s + c[1], 0) / 4;
+        const along = d.corners.map(([u, v]) => (u - cu) * m[0] + (v - cv) * m[1]);
+        const most = Math.max(...along.map(Math.abs));
+        const corners = d.corners.map(([u, v], c) => {
+          const k = (3.7 * along[c]!) / most;
+          return [u + k * m[0], v + k * m[1]];
+        }) as [Vec2, Vec2, Vec2, Vec2];
+        return { ...d, corners };
+      });
+      const pose = estimatePose(dets, A4, K);
+      expect(pose, `seed ${seed} case ${i}`).not.toBeNull();
+      used += pose!.usedTagIds.length;
+      seen += dets.length;
+      pos.push(poseError(pose!.boardFromCamera, truth).posMm);
+      overlay.push(overlayErrorMm(K, pose!.boardFromCamera, truth, [0, 100, 0]));
+    }
+    console.log(
+      `P4 blur-stretched tags (${n} cases, seed ${seed}): ${fmt((100 * used) / seen)} % of tags kept, position RMS ${fmt(rms(pos))} mm, max ${fmt(Math.max(...pos))} mm; overlay at 100 mm max ${fmt(Math.max(...overlay))} mm`,
+    );
+    // What is left is the stretch itself (the tags look bigger along the
+    // motion) and the shear of a homography fitted to one pair of stretched
+    // tags, which drops a few far tags. Keeping the strict set whenever it had
+    // half the tags or more (no spread condition, consensus.ts): 87 % kept,
+    // max 18.6 mm, overlay max 5.6 mm.
+    expect(used / seen, `seed ${seed}`).toBeGreaterThan(0.93);
+    expect(Math.max(...pos), `seed ${seed}`).toBeLessThan(14);
+    expect(Math.max(...overlay), `seed ${seed}`).toBeLessThan(4);
+  });
+
+  it('rejects a tag misprinted turned in place when only tags in a row are seen', () => {
+    // Tags along the top edge visible, 101 printed turned. Under the relaxed
+    // test alone, a pair with 101 passes the others: straight down with 17, 42,
+    // 101, turned 6°: 145 mm and 20° off; tilted with 3, 17, 42, 101, turned
+    // 20°: 765 mm and 88° off.
+    for (const [eye, ids, deg] of [
+      [[0, 400, 0], [17, 42, 101], 6],
+      [[0, 400, 0], [17, 42, 101], 10],
+      [[0, 400, 0], [17, 42, 101], 20],
+      [[0, 400, 300], [3, 17, 42, 101], 6],
+      [[0, 400, 300], [3, 17, 42, 101], 20],
+    ] as const) {
+      const truth = lookAtPose([...eye], [0, 0, 0]);
+      const printed: Board = {
+        family: A4.family,
+        tags: A4.tags.map((t) => (t.id === 101 ? { ...t, rotationDeg: t.rotationDeg + deg } : t)),
+      };
+      const visible: readonly number[] = ids;
+      const dets = observe(printed, K, truth, null, 0).filter((d) => visible.includes(d.id));
+      const pose = estimatePose(dets, A4, K);
+      expect(pose, `${deg}°`).not.toBeNull();
+      expect(pose!.rejectedTagIds, `${deg}°`).toEqual([101]);
+      const e = poseError(pose!.boardFromCamera, truth);
+      expect(e.posMm, `${deg}°`).toBeLessThan(0.1);
+      expect(e.rotDeg, `${deg}°`).toBeLessThan(0.01);
+    }
+  });
+
   it('rejects IDs not on the board, keeps the higher-margin duplicate, and handles 1–2 tags without consensus', () => {
     const truth = lookAtPose([30, 380, 120], [0, 0, 0]);
     const dets = observe(A4, K, truth, null, 0);

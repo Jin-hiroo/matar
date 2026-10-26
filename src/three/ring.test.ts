@@ -293,11 +293,13 @@ describe('MatarThree texture ring (T3-2)', () => {
     }
     expect(s.tracker.listeners.get('grab')).toBe(1);
     expect(s.tracker.listeners.get('pose')).toBe(1);
+    expect(s.tracker.listeners.get('state')).toBe(1);
     let disposed = 0;
     for (const t of s.textures) t.addEventListener('dispose', () => disposed++);
     s.ar.dispose();
     expect(s.tracker.listeners.get('grab')).toBe(0);
     expect(s.tracker.listeners.get('pose')).toBe(0);
+    expect(s.tracker.listeners.get('state')).toBe(0);
     expect(disposed).toBe(3);
     expect(s.scene.background).toBeNull();
     s.grab(3);

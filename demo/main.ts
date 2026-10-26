@@ -8,7 +8,17 @@
  * behind the content, uploaded from the `VideoFrame`), `?bg=video` (the same,
  * uploaded from the `<video>`), `?bg=live` (the newest camera frame with an
  * extrapolated pose: lower latency), `?pose=smoothed` (One Euro output instead
- * of each frame's own pose). After Start, **Mode** switches between `frame`
+ * of each frame's own pose), `?fov=85` (the long-side field of view to start
+ * from instead of the 68° prior; the report's `fit` line suggests one),
+ * `?exposure=4` (`camera.maxExposureMs`: a shorter exposure against motion
+ * blur, ms, where the camera allows it, the ISO raised to keep the
+ * brightness), `?edgeGamma=2.6` (`detector.edgeGamma`), `?centre=-2,19`
+ * (the lens centre, px from the image centre, set on the saved calibration),
+ * `?fresh` (forget the saved calibration). The focal length the tracker
+ * measures is saved in `localStorage` with the camera's label; the next
+ * Start opens that camera and begins from it (`TrackerOptions.intrinsics`),
+ * unless `?fov=` or `?fresh` is given. After
+ * Start, **Mode** switches between `frame`
  * and `live` without a reload, and **Copy report** copies the last 5 s of
  * timings (demo/report.ts).
  */
@@ -26,17 +36,62 @@ import {
   WebGLRenderer,
 } from 'three';
 import { boardSvg } from '../src/board/index.js';
+import { FOCAL_DEFAULTS } from '../src/pose/focal.js';
 import { MatarThree, mmToM } from '../src/three/index.js';
 import { createTracker } from '../src/tracker/index.js';
-import type { PoseEvent, TrackerErrorEvent } from '../src/types.js';
+import type {
+  CameraExposure,
+  CameraIntrinsics,
+  IntrinsicsEvent,
+  PoseEvent,
+  TrackerErrorEvent,
+} from '../src/types.js';
 import { DEMO_ORIGIN_MM, DEMO_PAGE_MM, demoBoard } from './board.js';
-import { Report } from './report.js';
+import { Report, type ReportContext } from './report.js';
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
 const inline = params.has('inline');
 let bg = params.get('bg') ?? 'frame';
 const poseKind = params.get('pose') === 'smoothed' ? 'smoothed' : 'raw';
+/** `?fov=`: the long-side field of view to start from, degrees (default: the library's 68° prior) */
+const fovDeg = Number(params.get('fov'));
+/** `?exposure=`: `camera.maxExposureMs` */
+const exposureReqMs = Number(params.get('exposure'));
+/** `?edgeGamma=`: `detector.edgeGamma`, the camera tone curve the detector assumes at tag edges */
+const edgeGamma = Number(params.get('edgeGamma'));
+/**
+ * `?centre=dx,dy`: the lens centre to start from, px from the image centre
+ * (+ = right, down), set on the saved calibration (the frame size comes from
+ * it); without it the saved one starts from the image centre
+ */
+const centreOffset = parseCentre(params.get('centre'));
+/** what became of it (the newest pose event's `stats.camera.exposure`), for the report */
+let exposureStats: CameraExposure | null = null;
+
+/**
+ * A self-calibration saved in `localStorage`: the camera it was measured on
+ * (its label: deviceIds can change between page loads) and the result.
+ */
+interface SavedCalibration {
+  label: string;
+  intrinsics: CameraIntrinsics;
+}
+const SAVED_KEY = 'matar-demo-calibration';
+if (params.has('fresh')) forgetCalibration();
+const saved = fovDeg || params.has('fresh') ? null : loadCalibration();
+/** where the focal length came from, for the report */
+let calibrationNote = 'nothing saved used';
+/** when the first frame the self-calibration could use arrived (≥ 6 tags at ≥ 20° tilt), performance.now() ms */
+let firstUsableMs: number | null = null;
+/** how long after it the first estimate came, once it has */
+let firstEstimateNote = '';
+/**
+ * For the report's `history` line: camera, focal-length and exposure changes,
+ * ms after the first analysed frame (`historyT0`, performance.now() ms).
+ */
+const timeline: { at: number; text: string }[] = [];
+let historyT0: number | null = null;
 
 const board = demoBoard();
 const hud = document.getElementById('hud') as HTMLPreElement;
@@ -57,6 +112,8 @@ interface DebugState {
     w: number;
     h: number;
     fx: number;
+    cx: number;
+    cy: number;
   }[];
   errors: string[];
   states: string[];
@@ -84,7 +141,59 @@ function printBoard(): void {
 }
 
 async function start(): Promise<void> {
-  const tracker = createTracker({ board, worker: inline ? false : undefined, debug });
+  // the saved camera's deviceId now; labels are listed before getUserMedia only
+  // while camera permission is granted, which a one-time grant isn't on the
+  // next load: then ask for it with a brief open of the back camera and look again
+  let found = saved ? await deviceIdFor(saved.label) : null;
+  let asked = false;
+  if (saved && found?.labelled === false) {
+    asked = await askCameraPermission();
+    if (asked) found = await deviceIdFor(saved.label);
+  }
+  const deviceId = found?.deviceId ?? null;
+  const restore =
+    saved && deviceId
+      ? { intrinsics: withCentre(saved.intrinsics, centreOffset), camera: { deviceId } }
+      : null;
+  const signed = (v: number) => `${v >= 0 ? '+' : '−'}${Math.abs(v)}`;
+  const centreNote = !centreOffset
+    ? params.has('centre')
+      ? `; ?centre=${params.get('centre')} not used: give it as dx,dy px`
+      : ''
+    : restore
+      ? `; lens centre x ${signed(centreOffset[0])}, y ${signed(centreOffset[1])} px from the image centre (?centre=)`
+      : '; ?centre= not used: it needs a saved calibration for the frame size';
+  // kept when a measurement is saved: why this run started where it did
+  const startNote =
+    (saved
+      ? restore
+        ? `started from the one saved for ${saved.label} (${saved.intrinsics.fx.toFixed(1)} px${asked ? ', camera names listed after a permission prompt' : ''})`
+        : `the one saved for ${saved.label} not used: ${found?.labelled === false ? 'no camera names listed before Start' : 'no camera of that name listed before Start'}`
+      : `nothing saved used${params.has('fresh') ? ' (?fresh)' : fovDeg ? ' (?fov=)' : ''}`) +
+    centreNote;
+  calibrationNote = startNote;
+  const tracker = createTracker({
+    board,
+    worker: inline ? false : undefined,
+    debug,
+    ...(fovDeg > 10 && fovDeg < 170 ? { fovPriorDeg: fovDeg } : {}),
+    ...restore,
+    camera: {
+      ...restore?.camera,
+      ...(exposureReqMs > 0 ? { maxExposureMs: exposureReqMs } : {}),
+    },
+    ...(edgeGamma > 0 ? { detector: { edgeGamma } } : {}),
+  });
+  tracker.addEventListener('intrinsics', (e) => {
+    const { intrinsics, source } = e as IntrinsicsEvent;
+    const label = (tracker.video.srcObject as MediaStream | null)?.getVideoTracks()[0]?.label;
+    if (source !== 'estimated' || !label) return;
+    if (!firstEstimateNote && firstUsableMs !== null) {
+      firstEstimateNote = `; first estimate ${((performance.now() - firstUsableMs) / 1000).toFixed(1)} s after the first frame it could use`;
+    }
+    saveCalibration({ label, intrinsics });
+    calibrationNote = `${startNote}; measured one saved for ${label}`;
+  });
 
   const renderer = new WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -92,8 +201,18 @@ async function start(): Promise<void> {
   document.getElementById('view')!.appendChild(renderer.domElement); // `!`: in index.html
   const scene = new Scene();
   const camera = new PerspectiveCamera(50, 1, 0.01, 10);
-  const makeAr = () =>
-    new MatarThree({
+  const report = new Report(board);
+  // time in the grab event (the synced texture upload): listeners run in order, so
+  // MatarThree's goes between these two
+  let grabT0 = 0;
+  tracker.addEventListener('grab', () => (grabT0 = performance.now()));
+  const onGrabDone = () => {
+    const now = performance.now();
+    report.addGrab(now - grabT0, now);
+  };
+  const makeAr = () => {
+    tracker.removeEventListener('grab', onGrabDone);
+    const made = new MatarThree({
       tracker,
       renderer,
       camera,
@@ -102,6 +221,9 @@ async function start(): Promise<void> {
       textureSource: bg === 'video' ? 'video' : 'frame',
       pose: poseKind,
     });
+    tracker.addEventListener('grab', onGrabDone);
+    return made;
+  };
   let ar = makeAr();
 
   // content in board coordinates, metres: axes on the origin cross, a 50 mm cube on the paper
@@ -126,7 +248,6 @@ async function start(): Promise<void> {
   let hudAt = 0;
   let bgAgeMs: number | null = null;
   let poseAgeMs: number | null = null;
-  const report = new Report();
   // frame times of the last poses, to age the one on screen
   const frameT = new Map<number, number>();
   // the newest camera frame, which the live background shows
@@ -153,7 +274,7 @@ async function start(): Promise<void> {
     history.replaceState(null, '', `?${params.toString()}`);
   });
   copyButton.addEventListener('click', () => {
-    const text = report.text(reportContext(), performance.now());
+    const text = report.text(reportContext(video), performance.now());
     reportBox.value = text;
     const copied =
       navigator.clipboard?.writeText(text) ?? Promise.reject(new Error('no clipboard'));
@@ -168,9 +289,41 @@ async function start(): Promise<void> {
   });
   reportBox.addEventListener('blur', () => (reportBox.style.display = 'none'));
 
+  let trackId: string | null = null;
+  let focalKey = '';
   tracker.addEventListener('pose', (e) => {
     last = e;
+    historyT0 ??= performance.now();
+    const track = (video.srcObject as MediaStream | null)?.getVideoTracks()[0];
+    if (track && track.id !== trackId) {
+      trackId = track.id;
+      logEvent(`camera ${track.label || '(no label)'}`);
+    }
+    const exposure = e.stats.camera.exposure;
+    if (exposureReqMs > 0 && exposure.state !== exposureStats?.state) {
+      logEvent(
+        `exposure ${exposure.state}${exposure.timeMs === null ? '' : ` ${exposure.timeMs.toFixed(1)} ms`}${exposure.iso === null ? '' : ` ISO ${exposure.iso}`}`,
+      );
+    }
+    exposureStats = exposure;
+    // the focal length in use: the start value, then each change (also a reset)
+    const fc = e.stats.focal;
+    if (`${fc.fx} ${fc.source}` !== focalKey) {
+      focalKey = `${fc.fx} ${fc.source}`;
+      logEvent(
+        `f ${fc.fx.toFixed(1)} px (${fc.source}${fc.stdDevPct === null ? '' : ` ±${fc.stdDevPct.toFixed(2)} %`})`,
+      );
+    }
     report.addPose(e, performance.now());
+    const m = e.pose?.boardFromCamera;
+    if (
+      firstUsableMs === null &&
+      m &&
+      e.pose!.usedTagIds.length >= FOCAL_DEFAULTS.minTags && // `!`: m is from it
+      Math.acos(Math.min(1, m[9]!)) >= (FOCAL_DEFAULTS.minTiltDeg * Math.PI) / 180 // `!`: Mat4 has 16 entries
+    ) {
+      firstUsableMs = performance.now();
+    }
     frameT.set(e.frameId, e.timestampMs);
     if (frameT.size > 16) frameT.delete(frameT.keys().next().value!); // `!`: size > 0
     const s = e.smoothed;
@@ -189,6 +342,8 @@ async function start(): Promise<void> {
         w: e.intrinsics.width,
         h: e.intrinsics.height,
         fx: e.intrinsics.fx,
+        cx: e.intrinsics.cx,
+        cy: e.intrinsics.cy,
       });
       if (dbg.events.length > 2000) dbg.events.shift();
       if (e.thumbnail) drawThumb(e.thumbnail.width, e.thumbnail.height, e.thumbnail.data);
@@ -199,6 +354,11 @@ async function start(): Promise<void> {
     const err = e as TrackerErrorEvent;
     dbg.errors.push(`${err.code}: ${err.message}`);
     hud.textContent = `error ${err.code}: ${err.message}`;
+    if (restore && tracker.state === 'starting') {
+      // opening the saved camera failed (it may be gone): start without it next time
+      forgetCalibration();
+      hud.textContent += '\n(the saved calibration is cleared: reload and Start again)';
+    }
   });
 
   renderer.setAnimationLoop(() => {
@@ -222,7 +382,107 @@ async function start(): Promise<void> {
   try {
     await tracker.start();
   } catch {
-    // shown by the error listener
+    return; // shown by the error listener
+  }
+}
+
+/** Adds a `history` entry, timed from the first analysed frame (0 before it). */
+function logEvent(text: string): void {
+  timeline.push({ at: historyT0 === null ? 0 : performance.now() - historyT0, text });
+}
+
+/** The `history` line: the first entries and the last few, with the time of each. */
+function historyText(): string {
+  const shown = (h: (typeof timeline)[number]) => `${(h.at / 1000).toFixed(1)} s ${h.text}`;
+  const head = 12;
+  const tail = 4;
+  if (timeline.length <= head + tail) return timeline.map(shown).join(' · ');
+  return [
+    ...timeline.slice(0, head).map(shown),
+    `… ${timeline.length - head - tail} more …`,
+    ...timeline.slice(-tail).map(shown),
+  ].join(' · ');
+}
+
+function loadCalibration(): SavedCalibration | null {
+  try {
+    const v = JSON.parse(localStorage.getItem(SAVED_KEY) ?? 'null') as SavedCalibration | null;
+    const k = v?.intrinsics;
+    const ok =
+      typeof v?.label === 'string' &&
+      v.label !== '' &&
+      k !== undefined &&
+      [k.width, k.height, k.fx, k.fy, k.cx, k.cy].every((x) => Number.isFinite(x) && x > 0);
+    return ok ? v : null;
+  } catch {
+    return null; // storage blocked or not JSON
+  }
+}
+
+/**
+ * The deviceId of the `videoinput` labelled `label` (null if none) and whether
+ * any camera had a label at all (none before camera permission); null if the
+ * cameras can't be listed.
+ */
+async function deviceIdFor(
+  label: string,
+): Promise<{ deviceId: string | null; labelled: boolean } | null> {
+  try {
+    const cams = (await navigator.mediaDevices.enumerateDevices()).filter(
+      (d) => d.kind === 'videoinput',
+    );
+    return {
+      deviceId: cams.find((d) => d.label === label && d.deviceId)?.deviceId ?? null,
+      labelled: cams.some((d) => d.label !== ''),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Opens and closes the back camera so the browser asks for permission; true if granted. */
+async function askCameraPermission(): Promise<boolean> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+    });
+    for (const t of stream.getTracks()) t.stop();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `?centre=dx,dy` → [dx, dy] px (each within ±200), else null */
+function parseCentre(s: string | null): [number, number] | null {
+  const v = s?.split(',').map((x) => (x.trim() === '' ? NaN : Number(x)));
+  return v?.length === 2 && v.every((x) => Number.isFinite(x) && Math.abs(x) <= 200)
+    ? [v[0]!, v[1]!] // `!`: length 2
+    : null;
+}
+
+/** `k` with its lens centre `offset` px from the image centre (the image centre if null). */
+function withCentre(k: CameraIntrinsics, offset: [number, number] | null): CameraIntrinsics {
+  return {
+    ...k,
+    cx: (k.width - 1) / 2 + (offset?.[0] ?? 0),
+    cy: (k.height - 1) / 2 + (offset?.[1] ?? 0),
+  };
+}
+
+function saveCalibration(c: SavedCalibration): void {
+  try {
+    localStorage.setItem(SAVED_KEY, JSON.stringify(c));
+  } catch {
+    // storage blocked or full: nothing saved
+  }
+}
+
+function forgetCalibration(): void {
+  try {
+    localStorage.removeItem(SAVED_KEY);
+  } catch {
+    // storage blocked
   }
 }
 
@@ -236,13 +496,87 @@ function jitterMm(p: [number, number, number][]): number | null {
   return Math.sqrt(ss / p.length);
 }
 
-function reportContext() {
+function reportContext(video: HTMLVideoElement): ReportContext {
   const s = window.screen;
   return {
     bg,
     pose: poseKind,
+    query: location.search,
+    edgeGamma: edgeGamma > 0 ? edgeGamma : null,
+    calibration: calibrationNote + firstEstimateNote,
+    history: historyText(),
     device: navigator.userAgent,
     screen: `${s.width}×${s.height} css px, dpr ${window.devicePixelRatio}, ${s.orientation?.type ?? '?'}`,
+    ...exposureInfo(video),
+  };
+}
+
+/** Image Capture fields of the camera track (not in TypeScript's DOM types); `exposureTime` is in 100 µs units. */
+interface ExposureSettings {
+  frameRate?: number;
+  exposureMode?: string;
+  exposureTime?: number;
+  iso?: number;
+  focusMode?: string;
+  focusDistance?: number;
+  zoom?: number;
+  resizeMode?: string;
+}
+interface ExposureCapabilities {
+  exposureMode?: string[];
+  exposureTime?: { min?: number; max?: number };
+  iso?: { min?: number; max?: number };
+}
+
+const EXPOSURE_STATES: Record<CameraExposure['state'], string> = {
+  off: '',
+  pending: 'waiting for the camera to settle or confirm',
+  unsupported: 'no manual exposure with ISO control here',
+  auto: 'the automatic exposure was already that short',
+  short: 'set',
+  refused: 'refused or not applied: back to automatic',
+};
+
+/** What became of `?exposure=` (`camera.maxExposureMs`), for the report. */
+function exposureNote(): string {
+  if (!(exposureReqMs > 0)) return '';
+  return `; ?exposure=${exposureReqMs} (camera.maxExposureMs): ${exposureStats ? EXPOSURE_STATES[exposureStats.state] || exposureStats.state : 'no pose event yet'}`;
+}
+
+/** What the browser says about the exposure: the current values and what could be set. */
+function exposureInfo(video: HTMLVideoElement): Pick<ReportContext, 'exposure' | 'exposureMs'> {
+  const track = (video.srcObject as MediaStream | null)?.getVideoTracks()[0];
+  if (!track) return { exposure: '-', exposureMs: null };
+  const st = track.getSettings() as ExposureSettings;
+  let caps: ExposureCapabilities = {};
+  try {
+    caps = (track.getCapabilities?.() ?? {}) as ExposureCapabilities;
+  } catch {
+    // not implemented: nothing settable
+  }
+  const exposureMs = typeof st.exposureTime === 'number' ? st.exposureTime / 10 : null;
+  const now = [
+    exposureMs === null ? 'time not reported' : `${exposureMs.toFixed(1)} ms`,
+    st.exposureMode ?? null,
+    st.iso === undefined ? null : `ISO ${st.iso}`,
+    st.frameRate === undefined ? null : `${st.frameRate.toFixed(0)} fps`,
+    st.focusMode ? `focus ${st.focusMode}` : null,
+    st.focusDistance === undefined ? null : `focus distance ${st.focusDistance}`,
+    st.zoom === undefined ? null : `zoom ${st.zoom}`,
+    st.resizeMode ? `resize ${st.resizeMode}` : null,
+  ].filter((x) => x !== null);
+  const range = (r: { min?: number; max?: number } | undefined, scale: number, digits: number) =>
+    r && r.min !== undefined && r.max !== undefined
+      ? `${(r.min * scale).toFixed(digits)}–${(r.max * scale).toFixed(digits)}`
+      : null;
+  const settable = [
+    caps.exposureMode?.length ? `modes ${caps.exposureMode.join('/')}` : null,
+    range(caps.exposureTime, 0.1, 1) && `time ${range(caps.exposureTime, 0.1, 1)} ms`,
+    range(caps.iso, 1, 0) && `ISO ${range(caps.iso, 1, 0)}`,
+  ].filter((x) => x);
+  return {
+    exposure: `${now.join(', ')}; settable: ${settable.length ? settable.join(', ') : 'nothing reported'}${exposureNote()}`,
+    exposureMs,
   };
 }
 

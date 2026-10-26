@@ -21,17 +21,21 @@
  * Uncertainty: each keyframe solved alone gives fᵢ; the deviation of the
  * estimate is std(fᵢ)/√N, % of f.
  *
- * Rules (§5.5 steps 2, 5, 6): keyframes need ≥ 6 inlier tags, RMS < 1 px,
- * tilt ≥ 20° (optical axis vs board normal) and a viewing direction (optical
- * axis) ≥ 10° from every kept keyframe; at most 20 (the least tilted is
- * dropped). Accept at ≥ 3 keyframes, deviation < 1 %, f ∈ [0.7, 1.4] × the
- * reference (prior) f. Once accepted, refine while the deviation ≥ 0.3 %, at
- * most 2 % per update. Jumps: 5 consecutive keyframe-quality frames each > 10 %
- * from the accepted f restart the calibration from their median.
+ * Rules (§5.5 steps 2, 5, 6): keyframes need ≥ 6 inlier tags, RMS < 1 px or
+ * < 1 mm on the paper, tilt ≥ 20° (optical axis vs board normal) and a
+ * viewing direction (optical axis) ≥ 10° from every kept keyframe; at most 20
+ * (the least tilted is dropped). Accept at ≥ 3 keyframes, deviation < 1 %,
+ * f ∈ [0.7, 1.4] × the reference (prior) f. Once accepted, refine while the
+ * deviation ≥ 0.3 %, at most 2 % per update. Jumps: 5 consecutive
+ * keyframe-quality frames each > 10 % from the f in use restart the
+ * calibration from their median.
  *
  * Deviations from §5.5, each measured in tests/synthetic/pose-focal.test.ts:
  * 1. "RMS < 1 px" is the RMS of the frame's own homography fit, not
- *    `pose.rmsErrPx` (see `add`).
+ *    `pose.rmsErrPx` (see `add`). In mm, it is that RMS over the corners'
+ *    image scale (`pxPerMm`): up close a pixel is less paper, and on a phone
+ *    at 291 mm and 47–54° tilt no frame had a fit under 1 px (1.1–1.5 px,
+ *    ≈ 0.5–0.75 mm; DEVICE-TESTS.md, 2026-10-23).
  * 2. Refinement stops at deviation < 0.3 % only with ≥ 10 keyframes: with 3
  *    the spread has 2 degrees of freedom, < 0.3 % happens by chance, and 20
  *    views end no better than 3 (max error 0.29 % vs 0.19 %).
@@ -39,6 +43,14 @@
  *    restart on scattered garbage); after it the median is the new reference
  *    for the [0.7, 1.4] window ("start again from the latest estimate"), and
  *    the jump frames seed the new keyframe set.
+ * 4. Jumps run in every state (§5.5 has them from an accepted f only); unless
+ *    it is accepted, inside the [0.7, 1.4] window, and the frames are
+ *    keyframes as well. The viewing-direction rule needs the phone moved
+ *    round the board, which nobody is told to do: on a phone held at one
+ *    angle the 68° prior stayed in use 20 % short, err 3.4 px against 0.64 px
+ *    (DEVICE-TESTS.md, 2026-10-23). Five frames from one direction fix most of
+ *    that, and the keyframes refine it as usual. After a jump, before it is
+ *    accepted, a lens switch back jumps again too.
  * `source: 'provided'` starts accepted, so it is only refined (2 % steps).
  *
  * Non-null assertions (`!`) are on scratch typed-array reads with indices below
@@ -61,8 +73,10 @@ import { boardCorners } from './estimate.js';
 /** Tuning of `createFocalEstimator`; the defaults are ARCHITECTURE.md §5.5's values. */
 export interface FocalEstimatorOptions {
   minTags: number;
-  /** keyframe quality: RMS of the frame's homography fit, px */
+  /** keyframe quality: RMS of the frame's homography fit, px … */
   maxFitRmsPx: number;
+  /** … or that RMS on the paper, mm (a frame passes on either) */
+  maxFitRmsMm: number;
   minTiltDeg: number;
   /** minimum angle between keyframe viewing directions, degrees */
   minSeparationDeg: number;
@@ -88,6 +102,7 @@ export interface FocalEstimatorOptions {
 export const FOCAL_DEFAULTS: FocalEstimatorOptions = {
   minTags: 6,
   maxFitRmsPx: 1,
+  maxFitRmsMm: 1,
   minTiltDeg: 20,
   minSeparationDeg: 10,
   maxKeyframes: 20,
@@ -119,6 +134,32 @@ export function focalConstraints(h: Mat3, w0: number, out: Float64Array): boolea
   out[2] = (h11 * h11 + h21 * h21 - h12 * h12 - h22 * h22) / s2;
   out[3] = (h31 * h31 - h32 * h32) / s2;
   return true;
+}
+
+/**
+ * Image scale of `n` correspondences (board mm in `src`, image points in `dst`,
+ * [x, y] pairs): the RMS distance of the image points from their centroid over
+ * that of the board points, in `dst` units per mm. From the points alone, so
+ * no fitted homography can make it blow up; on a tilted view it is the RMS of
+ * the scales along and across the tilt (3 % above their geometric mean at 45°).
+ */
+export function pxPerMm(src: ArrayLike<number>, dst: ArrayLike<number>, n: number): number {
+  return Math.sqrt(spread2(dst, n) / spread2(src, n));
+}
+
+/** Mean squared distance of `n` [x, y] points from their centroid. */
+function spread2(p: ArrayLike<number>, n: number): number {
+  let sx = 0;
+  let sy = 0;
+  let ss = 0;
+  for (let i = 0; i < 2 * n; i += 2) {
+    const x = p[i]!;
+    const y = p[i + 1]!;
+    sx += x;
+    sy += y;
+    ss += x * x + y * y;
+  }
+  return ss / n - (sx * sx + sy * sy) / (n * n);
 }
 
 /** w = (L/f)² from summed normal-equation terms Σa², Σab; NaN if not positive. */
@@ -227,17 +268,18 @@ class ClosedFormFocalEstimator implements FocalEstimator {
     const kf = this.measure(pose, detections, board);
     if (!kf) return null;
 
-    // jump rule (accepted state only): consecutive quality frames far from the f in use
-    if (this.accepted) {
-      if (Math.abs(kf.f / this.k.fx - 1) > this.o.jumpRatio) {
-        this.jumpFs.push(kf.f);
-        this.jumpFrames.push(kf);
-        if (this.jumpFs.length > this.o.jumpFrames) {
-          this.jumpFs.shift();
-          this.jumpFrames.shift();
-        }
-        return this.jumpFs.length === this.o.jumpFrames ? this.tryJump() : null;
+    // jump rule: consecutive quality frames far from the f in use; unless it is
+    // accepted, they are keyframes too
+    if (Math.abs(kf.f / this.k.fx - 1) > this.o.jumpRatio) {
+      this.jumpFs.push(kf.f);
+      this.jumpFrames.push(kf);
+      if (this.jumpFs.length > this.o.jumpFrames) {
+        this.jumpFs.shift();
+        this.jumpFrames.shift();
       }
+      const jump = this.jumpFs.length === this.o.jumpFrames ? this.tryJump() : null;
+      if (jump || this.accepted) return jump;
+    } else {
       this.jumpFs.length = 0;
       this.jumpFrames.length = 0;
     }
@@ -281,7 +323,8 @@ class ClosedFormFocalEstimator implements FocalEstimator {
     const h = homographyDlt(srcBuf, dstBuf, n, hBuf);
     if (!h) return null;
 
-    // fit quality in pixels (independent of f)
+    // fit quality (independent of f) in pixels, or on the paper (px over the
+    // corners' image scale)
     let e2 = 0;
     for (let i = 0; i < n; i++) {
       const x = srcBuf[2 * i]!;
@@ -291,7 +334,10 @@ class ClosedFormFocalEstimator implements FocalEstimator {
       const dv = (h[3]! * x + h[4]! * z + h[5]!) / ww - dstBuf[2 * i + 1]!;
       e2 += du * du + dv * dv;
     }
-    if (!(Math.sqrt(e2 / n) * L < o.maxFitRmsPx)) return null;
+    const rmsPx = Math.sqrt(e2 / n) * L;
+    if (!(rmsPx < o.maxFitRmsPx) && !(rmsPx / (pxPerMm(srcBuf, dstBuf, n) * L) < o.maxFitRmsMm)) {
+      return null;
+    }
 
     const w0 = (L / this.fRef) ** 2;
     if (!focalConstraints(h, w0, consBuf)) return null;
@@ -360,6 +406,13 @@ class ClosedFormFocalEstimator implements FocalEstimator {
     const med = sorted[sorted.length >> 1]!;
     if (sorted[0]! < med * (1 - this.o.jumpAgreement)) return null;
     if (sorted[sorted.length - 1]! > med * (1 + this.o.jumpAgreement)) return null;
+    // unless accepted, only within the plausible range (a lens switch may leave it)
+    if (
+      !this.accepted &&
+      !(med >= this.o.minRatio * this.fRef && med <= this.o.maxRatio * this.fRef)
+    ) {
+      return null;
+    }
     const frames = [...this.jumpFrames];
     let mean = 0;
     for (const f of sorted) mean += f / sorted.length;

@@ -9,8 +9,10 @@ import {
   WHITE,
   adaptiveThreshold,
   decimate2x2,
+  linearMidpointTable,
   thresholdScratchSize,
 } from './threshold.js';
+import { linearizationLut } from './refine.js';
 
 function scratch(w: number, h: number) {
   const n = thresholdScratchSize(w, h);
@@ -145,6 +147,53 @@ describe('adaptiveThreshold', () => {
     }
     expect(out[1 * (w + 2) + 1]).toBe(WHITE); // pixel (0, 0) = 255
     expect(out[1 * (w + 2) + 2]).toBe(BLACK); // pixel (1, 0) = 0
+  });
+
+  it('linearMidpointTable: the encoded midpoint for gamma 1, halfway in linear light for 2.2', () => {
+    const t1 = linearMidpointTable(linearizationLut(1));
+    for (let lo = 0; lo < 256; lo += 7) {
+      for (let hi = lo; hi < 256; hi += 5) expect(t1[lo * 256 + hi]).toBe(lo + ((hi - lo) >> 1));
+    }
+    const lut = linearizationLut(2.2);
+    const t = linearMidpointTable(lut);
+    expect(t[30 * 256 + 210]).toBe(154); // ink 30, paper 210: (30 + 210) / 2 = 120 encoded
+    // dark and low-contrast: the linear midpoint (36) would sit 14 DN below paper; the
+    // 24 DN white margin keeps the encoded midpoint (30) there
+    expect(t[10 * 256 + 50]).toBe(30);
+    expect(linearMidpointTable(lut, 0)[10 * 256 + 50]).toBe(36);
+    // steep gammas: the slack is relative, so tiny linear values still split
+    const steep = linearMidpointTable(linearizationLut(10), 0)[0 * 256 + 40]!;
+    expect(steep).toBeLessThan(40);
+    const t0 = linearMidpointTable(lut, 0);
+    for (let lo = 0; lo < 256; lo += 3) {
+      for (let hi = lo; hi < 256; hi += 3) {
+        const v = t0[lo * 256 + hi]!;
+        const m = (lut[lo]! + lut[hi]!) / 2;
+        expect(v).toBeGreaterThanOrEqual(lo);
+        expect(v).toBeLessThanOrEqual(hi);
+        expect(lut[v]!).toBeLessThanOrEqual(m + 1e-6);
+        if (v < hi) expect(lut[v + 1]!).toBeGreaterThan(m - 1e-6);
+      }
+    }
+  });
+
+  it('with the table, a blurred black bar stays black where the encoded midpoint loses it', () => {
+    // ink 30 and paper 210 nearby; a bar blurred to 135 DN (linear 0.25, below the
+    // linear midpoint 0.33 but above the encoded midpoint 120)
+    const w = 12;
+    const h = 8;
+    const img = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) img[y * w + x] = x === 0 ? 30 : x === 5 || x === 6 ? 135 : 210;
+    }
+    const out = new Uint8Array((w + 2) * (h + 2));
+    const sc = scratch(w, h);
+    const at = (x: number, y: number) => out[(y + 1) * (w + 2) + x + 1];
+    adaptiveThreshold(img, w, h, 15, out, sc);
+    expect(at(5, 4)).toBe(WHITE);
+    adaptiveThreshold(img, w, h, 15, out, sc, false, linearMidpointTable(linearizationLut(2.2)));
+    expect(at(5, 4)).toBe(BLACK);
+    expect(at(8, 4)).toBe(WHITE);
   });
 });
 

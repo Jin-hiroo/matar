@@ -14,6 +14,7 @@ import {
 } from '../../src/index.js';
 import {
   intrinsicsFromFov,
+  lookAtPose,
   mulberry32,
   randomViewPose,
   renderBoard,
@@ -125,4 +126,63 @@ describe('detect → pose on rendered A4 boards', () => {
     },
     SLOW_MS,
   );
+});
+
+describe('detect → pose under motion blur', () => {
+  // The demo's view: 720 × 1280 portrait, the 68° prior, 420 mm straight down,
+  // so 9 px cells. 16 px of blur stretches every tag by ≈ 3.5 px per side
+  // along the motion (centres stay put). The full-resolution search is the
+  // worst case ('auto' runs it after a frame without tags). Before the
+  // consensus had its relaxed pass, 5 of 11–13 tags were kept and the camera was
+  // 26–58 mm and 3–8° off (content 100 mm above the paper: 19–38 px); now
+  // 1.6–3.1 mm and 0.2–0.4° (1–3 px).
+  const pw = 720;
+  const ph = 1280;
+  const k = focalPrior(pw, ph, 68);
+  const dMm = 420;
+  const truth = lookAtPose([0, dMm, 0], [0, 0, 0]);
+  for (const dir of ['sideways', 'vertical'] as const) {
+    it(
+      `keeps every tag and the pose with 16 px of ${dir} blur`,
+      () => {
+        const blurPx = 16;
+        const mm = (blurPx * dMm) / k.fx; // camera travel during the exposure
+        const poses: Mat4[] = [];
+        for (let i = 0; i <= blurPx; i++) {
+          const s = (i / blurPx - 0.5) * mm;
+          const x = dir === 'sideways' ? s : 0;
+          const z = dir === 'vertical' ? s : 0;
+          poses.push(lookAtPose([x, dMm, z], [x, 0, z]));
+        }
+        const img = renderBoard({
+          board,
+          intrinsics: k,
+          boardFromCamera: poses,
+          pageMm,
+          blurSigmaPx: 0.8,
+          noiseSigma: 2,
+          supersample: 4,
+          seed: 16,
+        });
+        const dets = createDetector({
+          width: pw,
+          height: ph,
+          family: board.family,
+          ids: board.tags.map((t) => t.id),
+          decimate: 1,
+        }).detect(img);
+        const pose = estimatePose(dets, board, k);
+        expect(pose).not.toBeNull();
+        const e = poseError(pose!.boardFromCamera, truth);
+        console.log(
+          `pipeline, ${blurPx} px ${dir} blur: ${pose!.usedTagIds.length}/${dets.length} tags, ${e.mm.toFixed(2)} mm, ${e.deg.toFixed(2)}°, rms ${pose!.rmsErrPx.toFixed(2)} px`,
+        );
+        expect(dets.length).toBeGreaterThanOrEqual(8);
+        expect(pose!.rejectedTagIds).toEqual([]);
+        expect(e.mm).toBeLessThan(5);
+        expect(e.deg).toBeLessThan(0.6);
+      },
+      SLOW_MS,
+    );
+  }
 });

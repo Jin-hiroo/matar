@@ -24,7 +24,9 @@ getUserMedia (rear main lens)
 ```
 
 - One frame in flight: a frame is grabbed only when the worker is idle. Late
-  frames are dropped, never queued (lowest latency, bounded memory).
+  frames are dropped, never queued (lowest latency, bounded memory). One
+  exception: when a result comes back and the newest frame that came during the
+  wait is still the video's current frame, it is grabbed then (§6.2).
 - The overlay is drawn on the frame that was analysed (§7.2), so content can't
   "swim" against the video by the worker latency.
 - Everything per frame is preallocated: typed-array buffers are transferred
@@ -198,17 +200,28 @@ integer coordinates throughout (§2.4). AprilTag's code uses +0.5 centres:
 1. **Decimation** (optional): quad search on a 2 × 2 box-averaged image when
    `decimate: 2`. Decimated → full coordinates: `full = (p + 0.5)·d − 0.5`.
    Steps 4–5 always run on the full-resolution image. `'auto'` (the default):
-   ×1 on every 8th frame, whenever the previous frame detected nothing, after
-   `setIds()` and for frames too small to halve; otherwise ×2 if the previous
-   frame's smallest detected cell (shortest side / 8) was ≥ 8 px at full
-   resolution, else ×1. (×2 still finds 99.6 % of tags at 3–4 px/cell, so the
-   8 px switch-over is conservative and could be lowered after device tests.)
+   ×1 whenever the previous frame detected nothing, after `setIds()`, for
+   frames too small to halve, and on every 8th frame unless the previous one
+   found every ID looked for (then no small tag is left to find, and the ×1
+   frame was just the slowest one in eight: likely the 90th-percentile worker
+   time on the second Android test, 27 ms against a 20 ms median); otherwise
+   ×2 if the previous frame's smallest detected cell (shortest side / 8) was
+   ≥ 5 px at full resolution, else ×1. (×2 still finds 99.6 % of tags at
+   3–4 px/cell.)
 2. **Adaptive threshold** (AprilTag 3): 4 × 4 px tiles, each tile's min and
    max **over its four 2 × 2 block means** (halves the noise in max − min, so
    flat paper with sensor noise stays "unknown" instead of turning into large
    black clusters; real edges keep their extrema), extrema dilated over the
-   3 × 3 tile neighbourhood, threshold (min + max)/2, every pixel compared at
-   full resolution. Pixels whose local max − min < `minContrast` (default 15)
+   3 × 3 tile neighbourhood, threshold halfway between min and max **in
+   linear light** (a 256 × 256 table built from the `edgeGamma` LUT, one
+   lookup per tile; with ink 30 and paper 210 DN it is 154 DN, not 120), but
+   never within 24 DN of max unless the encoded midpoint already is (dark,
+   low-contrast tiles keep the encoded midpoint, so noise doesn't break the
+   white ring). Every pixel is compared at full resolution. AprilTag's encoded
+   midpoint (min + max)/2 sits at ≈ 20 % of the ink-to-paper range in linear
+   light, so under motion blur longer than about a cell the black border faded
+   past it before the white gaps did, and all tags of a frame were lost at once
+   (second Android device test; tests/synthetic/detect-motion.test.ts). Pixels whose local max − min < `minContrast` (default 15)
    are "unknown" (neither black nor white); this holds up to ≈ 4 DN of noise. Output: `Uint8Array` labels
    (0 black, 255 white, 127 unknown).
 3. **Candidates**: border following (Suzuki–Abe 1985) on black regions,
@@ -255,8 +268,8 @@ Target on an M-series Mac: median ≤ 4 ms for 1280 × 720 with ~15 tags (phones
 are typically 2–3× slower; the device budget is ≤ 12 ms for the whole worker
 step). Measured (D5, M2, Node 24, `pnpm bench --silent=false`): 50 cm clean
 3.4 ms at ×1 / 2.0 ms at ×2; with clutter + 2 DN noise 3.8 / 2.4 ms; a 30 cm
-close-up 4.7 / 3.3 ms (auto: 3.3 ms, p99 4.7 ms from the ×1 call every 8th
-frame). Hot loops bind imported constants locally (vitest wraps imported
+close-up 4.7 / 3.3 ms (auto: 3.2 ms, p99 3.5 ms; it was 4.9 ms while every
+8th frame ran ×1 even with all 15 tags found). Hot loops bind imported constants locally (vitest wraps imported
 bindings in getters, which made the bench 7× slower). No published phone timings exist for JS tag detectors (RESEARCH.md
 §2.3): benchmark early (`tests/bench`). Later optimisations, only if device
 numbers demand them: ROI search from a constant-velocity prediction with a
@@ -306,11 +319,46 @@ equations solved by Cholesky. ≤ 10 iterations, stop when the step < 1e-6.
 A tag can be wrong for real reasons: a misprint, a tile page placed crooked, a
 neighbouring board sharing an ID, or a false decode. With ≥ 3 tags: RANSAC over
 **tag pairs**, exhaustively (≤ 780 pairs for 40 visible tags; ~45 for a typical
-10): each pair's 8 corners give a pixel homography; inliers are tags whose 4
-corners all reproject within `inlierPx` (default 4 px); the largest inlier set
-(ties: lower total error) goes to §5.2–5.3. With 1–2 tags: no consensus, use
-them as they are. After the fit, drop any tag whose RMS > max(3 px, 3 × median
-tag RMS) and refit once. Stateless per frame, so results are deterministic.
+10): each pair's 8 corners give a pixel homography, and each tag is judged by
+its 4 corner errors under it. Two tests, in two passes: **strict**, every
+corner within `inlierPx` (default 4 px); **relaxed**, the tag's shift (the
+mean of its 4 error vectors) within `inlierPx` and every corner within 3 ×
+`inlierPx`. Each pass keeps its largest inlier set (ties: lower total error).
+The strict set goes to §5.2–5.3 unless it leaves tags out, the relaxed set is
+larger, and either the strict set has fewer than half the tags or the relaxed
+set's tags don't lie along one line (their centres' RMS distance from their
+best-fit line ≥ half a tag side).
+With 1–2 tags: no consensus, use them as they are. After the fit, drop any tag
+whose RMS > max(3 px, 3 × median tag RMS) and refit once. Stateless per frame,
+so results are deterministic.
+
+Why relaxed: motion blur longer than a cell moves both edges across the motion
+outward by ≈ (blur − cell) / 2 px, so every tag looks stretched while it barely
+shifts. Rendered with 12–16 px of blur at 0–60° to the tag edges, corners were
+up to 5.2 px off and shifts ≤ 1.5 px. The strict test split such frames into
+small consensus sets: 5 of 11–13 tags kept, the camera 26–58 mm and 3–8° off.
+Now all are kept and the pose is within 3.1 mm and 0.4°
+(tests/synthetic/pipeline.test.ts). Wrong or displaced tags shift, and a tag
+turned in place (a misprint) moves its corners past 3 × `inlierPx` once
+turned far enough.
+
+Why not relaxed alone: along one line of tags, the homography of a pair that
+includes a misprinted tag is free to tilt about that line and can pass the
+others. Tags 17, 42 and 101 of a test board in view, 101 turned by 6°: the
+camera was 145 mm and 20° off; tilted, with tag 3 too and 101 turned by 20°:
+765 mm and 88°. The strict test keeps the good tags; a tag off the line
+exposes the tilt, hence the spread condition. On random views with 3–6 tags
+(half of them runs along one edge, turns up to 20°, tilts up to 45°), the two
+passes are exactly as good as strict alone with a misprinted tag, with or
+without the spread condition.
+
+What blur still costs. A homography from one pair of stretched tags is
+slightly sheared, so a few far tags drop out. Full board, stretch 3.7 px
+(tests/synthetic/pose.test.ts): 95 % of tags kept, camera ≤ 10.7 mm off,
+content 100 mm above the board ≤ 3.0 mm (relaxed alone: the same). Without
+the spread condition, keeping the strict set whenever it had half the tags or
+more, its tags were a biased subset: 87 %, 18.6 mm and 5.6 mm (strict alone
+21 mm for the content).
 
 `BoardPose.rmsErrPx` is over inlier corners; `usedTagIds` / `rejectedTagIds`
 report the split.
@@ -324,12 +372,17 @@ refine from the board:
    and `fovPriorDeg` the long-side field of view (default **68°**, RESEARCH.md
    §1.3; Android EIS crops make it narrower). Principal point at the centre
    ((w − 1)/2, (h − 1)/2), square pixels, no skew, no distortion.
-2. **Keyframes** (worker): frames with ≥ 6 inlier tags, an RMS < 1 px of the
-   frame's **own homography fit** (not `pose.rmsErrPx`: the pose was solved
-   with the current, possibly wrong f, so its RMS mostly measures the focal
-   error and would refuse the most tilted, most informative views) and board
-   tilt ≥ 20°, each differing from the kept ones by ≥ 10° in viewing direction;
-   keep up to 20 (drop the least tilted).
+2. **Keyframes** (worker): frames with ≥ 6 inlier tags, an RMS < 1 px or
+   < 1 mm on the paper of the frame's **own homography fit** (not
+   `pose.rmsErrPx`: the pose was solved with the current, possibly wrong f, so
+   its RMS mostly measures the focal error and would refuse the most tilted,
+   most informative views) and board tilt ≥ 20°, each differing from the kept
+   ones by ≥ 10° in viewing direction; keep up to 20 (drop the least tilted).
+   The mm are the px over the corners' image scale: their RMS distance from
+   their centroid in the image over that on the board (from the points, so a
+   poor homography can't inflate it). Up close a pixel is less paper, and a
+   phone at 291 mm and 47–54° tilt had fits of 1.1–1.5 px, none under 1 px
+   (DEVICE-TESTS.md, 2026-10-23).
 3. **Closed form** (RESEARCH.md §2.5): per keyframe, the homography H (DLT,
    §5.2) from board (x, z) mm to **centred, scaled pixels**
    ((u − cx)/L, (v − cy)/L), L = the frame's long side, gives two linear
@@ -347,10 +400,15 @@ refine from the board:
    few degrees of freedom and < 0.3 % happens by chance); once accepted, never
    move more than 2 % per update. `provided` intrinsics start accepted.
 6. **Jumps**: if 5 consecutive keyframe-quality frames each give a closed-form f
-   more than 10 % from the accepted one (e.g. a lens switch) and agree within
-   5 % of their median, drop the keyframes and start again: the median becomes
-   the reference for the [0.7, 1.4] window and those frames seed the new
-   keyframe set.
+   more than 10 % from the one in use (e.g. a lens switch) and agree within 5 %
+   of their median, drop the keyframes and start again: the median is used at
+   once (not accepted; step 5 accepts later as usual), becomes the reference
+   for the [0.7, 1.4] window, and those frames seed the new keyframe set. This
+   runs in every state: from the prior, and after a jump before acceptance (a
+   lens switch back), only if the median is inside the [0.7, 1.4] window, and
+   the frames count as keyframes too. Step 2's viewing directions need the
+   phone moved round the board; a phone held at one angle stayed on a prior
+   20 % short, err 3.4 px against 0.64 px (DEVICE-TESTS.md, 2026-10-23).
 7. Integrators may persist `{ width, height, fx, fy, cx, cy }` per device and
    pass it back (`source: 'provided'`); calibration then only refines it.
    Intrinsics are reused only for the same frame size and orientation.
@@ -421,20 +479,42 @@ tries to stay on one lens:
    Report `lens: 'pinned' | 'virtual' | 'unknown'` (`LensKind`) in stats and
    the chosen label. More
    locales are added from device-test data, not guessed.
-4. **Android / Chrome**: back cameras are labelled `camera2 N, facing back`
-   (not localised). Choose the lowest N; reopen if the current track isn't it.
+4. **Android / Chrome**: back cameras are labelled `camera N, facing back`
+   (`camera2 N, …` in older Chrome; not localised; infrared ones end in
+   `, infrared` and are skipped). Choose the lowest N; reopen if the current
+   track isn't it.
 5. Expose `listCameras()` (labels + deviceIds after permission) so apps can
    offer a picker and persist the choice.
 
 The demo HUD shows every `videoinput` label and the chosen one, so device
 tests collect real labels (DEVICE-TESTS.md).
 
+**Exposure** (`camera.maxExposureMs`, opt-in; src/camera/exposure.ts). Motion
+blur longer than about a tag cell loses tags; the automatic exposure on the
+Android test phone was 10–30 ms. A shorter one costs light, so the ISO goes up
+by the same factor. About 1 s after each camera opens (start or reacquire,
+for the automatic exposure to settle), if the track offers Image Capture's
+`exposureMode: 'manual'` with `exposureTime` (100 µs units) and `iso`, and its
+current exposure is longer than the maximum: set `exposureTime` to the
+maximum and `iso` to current × old / new time, each clamped to its range.
+0.5 s later read the settings back; unless the exposure time is the one asked
+for (± 100 µs), go back to `exposureMode: 'continuous'`. Chrome once took the
+ISO but kept 10 ms while resolving `applyConstraints`. The outcome is
+`stats.camera.exposure` (`ExposureState`: `off`, `pending`, `unsupported`,
+`auto` when it was already that short, `short`, `refused`). The manual
+exposure stays fixed and doesn't follow later changes of light, and the ISO
+cap can leave dim scenes darker. Chrome on Android offers it; iOS Safari has
+no exposure constraints (RESEARCH.md §1.4). On the test phone, 4 ms (ISO 624)
+kept a pose on 150 / 150 frames at 442 / 958 px/s where 10 ms lost 21 of 150
+at 289 / 753 px/s, with the same corner error when held still (DEVICE-TESTS.md,
+2026-10-23; measured with the demo's own version of this).
+
 ### 6.2 Frame path
 
 **v0.1 path (iOS 17+, Android Chrome; one code path):** in the main-thread
 `requestVideoFrameCallback`, when the worker is idle:
 
-1. `frame = new VideoFrame(video, { timestamp })`.
+1. `frame = new VideoFrame(video)`.
 2. Dispatch the **`grab` event** synchronously (`GrabEvent { frameId, video,
 frame }`): `MatarThree` uploads `frame` into its texture ring here (§7.2).
 3. `postMessage({ type: 'frame', …, displayWidth: video.videoWidth,
@@ -472,6 +552,19 @@ match worker frames to displayed frames (timestamps), so they aren't in v0.1.
 Frame timing: `rVFC` metadata `mediaTime`/`presentedFrames` identify frames;
 `timestampMs` is `performance.now()`-based (`metadata.expectedDisplayTime` or
 `now`), used for filter dt.
+
+**Late grab.** Camera frames are presented on display refreshes, so at 30 fps on
+a 60 Hz screen some arrive 16.7 ms after the previous one. A worker that takes
+about 20 ms (Android, 720 × 1280) missed each of those, the likely cause of the
+gap on the second Android test (29.9 fps from the camera, 26.8 analysed; the
+p90 interval between analysed frames was 50 ms). The tracker remembers the newest
+frame whose callback came while one was in flight (its `expectedDisplayTime` and
+`mediaTime`). When the result arrives, it grabs `new VideoFrame(video)` and sends
+it, with that timestamp, only if `frame.timestamp` is that `mediaTime`
+(± 0.5 ms). Otherwise a newer frame is already current and its own callback is
+coming, so the grabbed frame is closed unsent. This is the `videoframe` path
+only, and a browser whose two timestamps differ just drops frames as before.
+Still one frame in flight, never queued.
 
 ### 6.3 Worker protocol
 
@@ -549,8 +642,10 @@ coordinates sits on the paper. `ar.update()`:
 1. takes the newest pose event whose frame is in the texture ring;
 2. sets `scene.background` to that frame's texture with the cover crop (§7.3);
 3. copies the frame's own `pose.boardFromCamera` (option `pose: 'raw'`, the
-   default; the smoothed pose only for frames without one, i.e. the loss hold)
-   or the smoothed pose (`pose: 'smoothed'`), translation × `mmToM`, into
+   default; for a frame without one that is still tracking, the last two raw
+   poses extrapolated to its timestamp as in `live` below, or the smoothed
+   pose before any raw one) or the smoothed pose (`pose: 'smoothed'`),
+   translation × `mmToM`, into
    `camera.matrix` and `decompose`s it into `position`/`quaternion`/`scale`
    (three recomputes `matrixWorld` from these on every render, so setting
    `matrixWorld` directly would be overwritten). `matrixAutoUpdate` stays
@@ -589,7 +684,33 @@ overlay always match. `background: 'none'` leaves the background to the app.
 on screen, so it needs no smoothing to stay on the paper; the One Euro filter's
 lag at slow and moderate motion (30–100 ms) made content trail the paper on the
 first Android device test. Jitter of the raw pose is small for content near the
-paper (RESEARCH.md §2.7).
+paper (RESEARCH.md §2.7). Frames without a pose (23–31 % while moving on that
+phone) don't use the loss hold either. The hold is the filter state of an
+older frame and lags behind it, so content jumped back for a frame during
+fast moves, which looked like shaking. For example, turning at 30°/s, a hold
+60 ms behind the shown frame is ≈ 2° off: ≈ 30 px at f ≈ 950 px. These frames
+get the raw poses extrapolated to their own timestamp instead, and `live`
+takes only raw poses as velocity samples for the same reason.
+
+**Spikes.** Without the filter, nothing stopped a bad raw pose from reaching
+the screen. Heavy motion blur can leave 1–3 badly placed tags, and one blurred
+tag can put the camera tens of degrees off. So a raw pose more than 20 mm or
+5° from the last two raw poses extrapolated to its timestamp is drawn like a
+frame without a pose (extrapolated) and isn't a velocity
+sample. On the third such pose in a row, the motion restarts there. These are
+the filter's jump-gate numbers (§5.6), measured against the predicted pose
+rather than the lagging filtered one. Until a pose has matched the
+prediction, the velocity can come from a bad first or second pose, which had
+nothing to be compared with: a pose near the last one is taken, and one near
+only the pose before drops the last from the velocity. Only where the
+prediction reaches: with two poses (a velocity) and at most 100 ms and 3 pose
+intervals ahead, the extrapolation limits, so the first pose after a dropout
+during fast motion is taken. Poses more than 250 ms apart, a loss, a new
+orientation (other intrinsics size) and a tracker state change (stop, pause,
+restart) start a new motion; pose events queued before then are shown with
+their own pose but add nothing to the velocity. `setBoard()`
+isn't visible to `MatarThree`: if the new board puts the camera elsewhere, its
+first two poses are taken for spikes and the third restarts the motion.
 
 **`background: 'live'`** trades exact registration for latency: a
 `VideoTexture` of the tracker's `<video>` shows the newest camera frame (no
@@ -597,8 +718,10 @@ worker delay), and `update()` extrapolates the newest pose at constant
 velocity (position linearly, rotation as `q₁ · (q₀⁻¹ q₁)^k`) to that frame's
 `expectedDisplayTime`, at most 100 ms and 3 pose intervals ahead; no
 extrapolation across a gap > 250 ms. Content can swim slightly during sudden
-moves. Which mode feels better on phones is a device-test question
-(DEVICE-TESTS.md).
+moves. On the first Android device test (DEVICE-TESTS.md, 2026-10-21) `synced`
+felt better: its background was ≈ 36 ms old at render, but `live` content
+lagged its current background by 33 ms (p90 67 ms), and that showed more.
+`synced` stays the default; `live` is opt-in.
 Accepted by a real-three test in Chromium (Playwright,
 `playwright.three.config.ts`): render, read pixels back, and check the
 background is frame N's content when pose N is applied, for both texture
@@ -661,6 +784,8 @@ export type {
   TrackerState,
   TrackerErrorCode,
   LensKind,
+  ExposureState,
+  CameraExposure,
   TrackerOptions,
   TrackerStats,
   Tracker,
@@ -862,7 +987,7 @@ All randomness is seeded; tests print the seed on failure.
   shakeable, `sideEffects: false`). Entry points: `matar` (`src/index.ts`),
   `matar/three` (`src/three/index.ts`), `matar/testing` (`src/synth/index.ts`),
   and the worker `dist/worker/main.js`.
-- `pnpm size` (size-limit, `.size-limit.json`) checks: core entry + worker ≤ 35 KB,
+- `pnpm size` (size-limit, `.size-limit.json`) checks: core entry + worker ≤ 50 KB,
   `matar/three` ≤ 8 KB (three.js excluded), min+gzip.
 - The tag code table ships as a compact hex string in source, no binary asset
   fetches (core idea 1).
