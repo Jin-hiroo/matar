@@ -430,6 +430,16 @@ test('Mode switches the background without a reload; Copy report copies the timi
   expect(Number(tags![2]), report).toBeGreaterThan(0);
   expect(Number(tags![2]), report).toBeLessThan(3 * Number(tags![1]) + 0.05);
   expect(report).toMatch(/motion {3}board centre \d+ \/ \d+ px\/s in the image/);
+  // the fake camera's poses are exact, so the cube top barely jitters against the paper
+  const wobble =
+    /wobble {3}cube top against the paper, frame to frame beyond steady motion, by board speed: (.*)/.exec(
+      report,
+    );
+  expect(wobble, report).not.toBeNull();
+  console.log(`e2e ${wobble![0]}`);
+  for (const m of wobble![1]!.matchAll(/([\d.]+) \/ [\d.]+ px \(/g)) {
+    expect(Number(m[1]), report).toBeLessThan(1);
+  }
   expect(report).toMatch(/exposure \S/);
   // the report reprojects the used corners itself: small errors check its projection
   const rings =
@@ -442,6 +452,31 @@ test('Mode switches the background without a reload; Copy report copies the timi
   for (const rms of [rings![1], rings![3], rings![5]]) {
     if (rms !== '-') expect(Number(rms), report).toBeLessThan(2);
   }
+  expect(errors).toEqual([]);
+  checkPrivacy(requests, new URL(baseURL!).origin);
+});
+
+test('?outline draws the tags’ outlines on the paper', async ({ page, baseURL }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  const requests = await startDemo(page, '&outline');
+  const state = await waitForEvents(page, 20);
+  expect(state.events.slice(-10).some((e) => e.pose)).toBe(true);
+  // the outlines' green (0x00ff66) on screen: nothing else in the scene is that colour
+  const png = await page.screenshot({ path: 'tests/out/outline.png' });
+  const green = await page.evaluate(async (b64) => {
+    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+    const bmp = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+    const ctx = new OffscreenCanvas(bmp.width, bmp.height).getContext('2d')!; // `!`: 2d is supported
+    ctx.drawImage(bmp, 0, 0);
+    const d = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      if (d[i]! < 60 && d[i + 1]! > 200 && Math.abs(d[i + 2]! - 102) < 50) n++; // `!`: in range
+    }
+    return n;
+  }, png.toString('base64'));
+  expect(green).toBeGreaterThan(200);
   expect(errors).toEqual([]);
   checkPrivacy(requests, new URL(baseURL!).origin);
 });

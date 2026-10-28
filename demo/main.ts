@@ -14,7 +14,9 @@
  * blur, ms, where the camera allows it, the ISO raised to keep the
  * brightness), `?edgeGamma=2.6` (`detector.edgeGamma`), `?centre=-2,19`
  * (the lens centre, px from the image centre, set on the saved calibration),
- * `?fresh` (forget the saved calibration). The focal length the tracker
+ * `?outline` (each tag's outline drawn on the paper with the pose, like the
+ * cube: it stays on the printed squares unless the picture and the pose
+ * disagree), `?fresh` (forget the saved calibration). The focal length the tracker
  * measures is saved in `localStorage` with the camera's label; the next
  * Start opens that camera and begins from it (`TrackerOptions.intrinsics`),
  * unless `?fov=` or `?fresh` is given. After
@@ -25,17 +27,21 @@
 import {
   AxesHelper,
   BoxGeometry,
+  BufferGeometry,
+  DoubleSide,
   EdgesGeometry,
+  Float32BufferAttribute,
   Group,
   LineBasicMaterial,
   LineSegments,
   Mesh,
+  MeshBasicMaterial,
   MeshNormalMaterial,
   PerspectiveCamera,
   Scene,
   WebGLRenderer,
 } from 'three';
-import { boardSvg } from '../src/board/index.js';
+import { boardSvg, boardTagCornersMm } from '../src/board/index.js';
 import { FOCAL_DEFAULTS } from '../src/pose/focal.js';
 import { MatarThree, mmToM } from '../src/three/index.js';
 import { createTracker } from '../src/tracker/index.js';
@@ -66,6 +72,8 @@ const edgeGamma = Number(params.get('edgeGamma'));
  * it); without it the saved one starts from the image centre
  */
 const centreOffset = parseCentre(params.get('centre'));
+/** `?outline`: draw the tags' outlines on the paper */
+const outline = params.has('outline');
 /** what became of it (the newest pose event's `stats.camera.exposure`), for the report */
 let exposureStats: CameraExposure | null = null;
 
@@ -238,6 +246,7 @@ async function start(): Promise<void> {
   );
   edges.position.y = 25 * mmToM;
   content.add(box, edges);
+  if (outline) content.add(tagOutlines());
   scene.add(content);
 
   window.addEventListener('resize', () => renderer.setSize(window.innerWidth, window.innerHeight));
@@ -578,6 +587,38 @@ function exposureInfo(video: HTMLVideoElement): Pick<ReportContext, 'exposure' |
     exposure: `${now.join(', ')}; settable: ${settable.length ? settable.join(', ') : 'nothing reported'}${exposureNote()}`,
     exposureMs,
   };
+}
+
+/**
+ * `?outline`: each tag's outline as a 1 mm strip on the paper (board XZ
+ * plane, metres), centred on the printed edge: half on the black, half on the
+ * white while the pose and the picture agree.
+ */
+function tagOutlines(): Mesh {
+  const hw = 0.5; // half the strip width, mm
+  const pos: number[] = [];
+  for (const tag of board.tags) {
+    const c = boardTagCornersMm(tag);
+    for (let i = 0; i < 4; i++) {
+      const [px, pz] = c[i]!; // `!`: i < 4
+      const [qx, qz] = c[(i + 1) % 4]!;
+      const len = Math.hypot(qx - px, qz - pz);
+      const [dx, dz] = [(qx - px) / len, (qz - pz) / len];
+      const [nx, nz] = [-dz * hw, dx * hw];
+      // the edge extended by hw at both ends, so the strips close the corners
+      const [ax, az, bx, bz] = [px - dx * hw, pz - dz * hw, qx + dx * hw, qz + dz * hw];
+      const quad = [
+        [ax + nx, az + nz],
+        [ax - nx, az - nz],
+        [bx - nx, bz - nz],
+        [bx + nx, bz + nz],
+      ];
+      for (const k of [0, 1, 2, 0, 2, 3]) pos.push(quad[k]![0]! * mmToM, 0, quad[k]![1]! * mmToM); // `!`: k < 4
+    }
+  }
+  const geom = new BufferGeometry();
+  geom.setAttribute('position', new Float32BufferAttribute(pos, 3));
+  return new Mesh(geom, new MeshBasicMaterial({ color: 0x00ff66, side: DoubleSide }));
 }
 
 function flash(button: HTMLButtonElement, label: string, restore: string): void {

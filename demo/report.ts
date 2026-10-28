@@ -23,6 +23,10 @@
  * takes the lens centre (principal point) to be the image centre, and if it
  * isn't, the focal length comes out high with the paper receding one way and
  * low the opposite way. It also gives the lens centre that makes them agree.
+ * The `wobble` line measures how much content above the paper moves against
+ * it from frame to frame: with the paper's outline fitted to the tags, where
+ * a point above it appears on the paper depends only on the camera position,
+ * so its jitter is the camera position's.
  * The `history` line (from the page) has the camera, focal-length and
  * exposure changes since the first frame. The `corners` line has one frame's
  * detected tag corners (the slowest-moving tracked one), to refit offline when
@@ -54,6 +58,14 @@ const FAST_PX_S = 300;
 const CENTRE_FRAMES = 3000;
 const CENTRE_PER_SIDE = 60;
 const CENTRE_RANGE_PX = 80;
+/**
+ * `wobble` line: the height of the demo cube's top (mm), the longest interval
+ * between the three frames of a second difference (ms) and how unequal its two
+ * intervals may be (ms)
+ */
+const CUBE_MM = 50;
+const WOBBLE_GAP_MS = 50;
+const WOBBLE_UNEVEN_MS = 8;
 /** the image edge a tilted view of the paper recedes towards (its horizon is on that side) */
 const SIDES = ['top', 'bottom', 'left', 'right'] as const;
 type Side = (typeof SIDES)[number];
@@ -81,6 +93,13 @@ interface PoseSample {
   originPx: Vec2 | null;
   /** its speed since the previous tracked frame, if that is ≤ 100 ms older, px/s */
   speedPxS: number | null;
+  /**
+   * where on the paper the demo cube's top centre appears, board (x, z) mm:
+   * the paper point behind it along the line of sight, a function of the
+   * camera position alone; and the image scale at the origin, px per mm
+   */
+  topOnPaperMm: Vec2 | null;
+  pxPerMmAtOrigin: number | null;
   /** the tags' outermost corners in the image, px, and the fastest of them like `speedPxS` (catches turning about the centre) */
   extentPx: Vec2[] | null;
   extentSpeedPxS: number | null;
@@ -236,6 +255,22 @@ export class Report {
       originPx && prev?.originPx && dt > 0 && dt <= 100
         ? (1000 * Math.hypot(originPx[0] - prev.originPx[0], originPx[1] - prev.originPx[1])) / dt
         : null;
+    // the camera at (X, Y, Z), the top at (0, CUBE_MM, 0): the line through them meets the paper at
+    // −CUBE_MM / (Y − CUBE_MM) · (X, Z)
+    const above = m ? m[13]! - CUBE_MM : 0; // `!`: 16 entries
+    const topOnPaperMm: Vec2 | null =
+      m && above > 0 ? [(-CUBE_MM * m[12]!) / above, (-CUBE_MM * m[14]!) / above] : null;
+    const ox = m && originPx ? project(m, e.intrinsics, 1, 0, 0) : null;
+    const oz = m && originPx ? project(m, e.intrinsics, 0, 0, 1) : null;
+    const pxPerMmAtOrigin =
+      originPx && ox && oz
+        ? Math.sqrt(
+            Math.abs(
+              (ox[0] - originPx[0]) * (oz[1] - originPx[1]) -
+                (ox[1] - originPx[1]) * (oz[0] - originPx[0]),
+            ),
+          )
+        : null;
     const ext = m ? this.extent.map(([x, z]) => project(m, e.intrinsics, x, 0, z)) : [];
     const extentPx = ext.length && ext.every((p) => p) ? (ext as Vec2[]) : null;
     const prevExt = prev?.extentPx;
@@ -264,6 +299,8 @@ export class Report {
       tiltDeg,
       originPx,
       speedPxS,
+      topOnPaperMm,
+      pxPerMmAtOrigin,
       extentPx,
       extentSpeedPxS,
       ringSs,
@@ -313,6 +350,42 @@ export class Report {
       e2 += res[2 * i]! ** 2 + res[2 * i + 1]! ** 2;
     }
     return { h, src, dst, n, res, rmsPx: Math.sqrt(e2 / n) };
+  }
+
+  /**
+   * The `wobble` line: how far the cube's top jumps against the paper from
+   * frame to frame beyond steady motion, by board speed. Noise n in each
+   * frame's `topOnPaperMm` gives a second difference over three frames of
+   * n₀ − 2n₁ + n₂, √6 times n's spread, so |second difference| / √6 spreads
+   * like |n|; changing speed adds to it (a camera 500 mm up accelerating at
+   * 2 m/s² adds about 0.1 mm at 30 fps), so it is an upper bound. In px
+   * through the image scale at the origin; frames with a gap between them are
+   * skipped.
+   */
+  private wobbleLine(poses: PoseSample[]): string {
+    const bands: { px: number[]; mm: number[] }[] = [0, 1, 2].map(() => ({ px: [], mm: [] }));
+    for (let i = 1; i + 1 < poses.length; i++) {
+      // `!`: 1 ≤ i < length − 1
+      const [a, b, c] = [poses[i - 1]!, poses[i]!, poses[i + 1]!];
+      const h1 = b.frameT - a.frameT;
+      const h2 = c.frameT - b.frameT;
+      if (!(h1 > 0 && h2 > 0 && Math.max(h1, h2) <= WOBBLE_GAP_MS)) continue;
+      if (Math.abs(h1 - h2) > WOBBLE_UNEVEN_MS) continue;
+      const [qa, qb, qc] = [a.topOnPaperMm, b.topOnPaperMm, c.topOnPaperMm];
+      if (!qa || !qb || !qc || b.speedPxS === null || b.pxPerMmAtOrigin === null) continue;
+      const mm = Math.hypot(qa[0] - 2 * qb[0] + qc[0], qa[1] - 2 * qb[1] + qc[1]) / Math.sqrt(6);
+      const band = bands[b.speedPxS < SLOW_PX_S ? 0 : b.speedPxS < FAST_PX_S ? 1 : 2]!; // `!`: 0–2
+      band.mm.push(mm);
+      band.px.push(mm * b.pxPerMmAtOrigin);
+    }
+    const label = [`< ${SLOW_PX_S} px/s`, `${SLOW_PX_S}–${FAST_PX_S}`, `≥ ${FAST_PX_S}`];
+    return `cube top against the paper, frame to frame beyond steady motion, by board speed: ${bands
+      .map((b, i) =>
+        b.px.length
+          ? `${label[i]} ${mp(b.px, 2)} px (${mp(b.mm, 2)} mm, ${b.px.length})`
+          : `${label[i]} -`,
+      )
+      .join(', ')}`;
   }
 
   /** The `calib` line: frames that pass each keyframe rule of the self-calibration, in this window. */
@@ -553,6 +626,7 @@ export class Report {
         0,
       )}° from straight down`,
       `motion   board centre ${mp(speeds, 0)} px/s in the image${blur}`,
+      `wobble   ${this.wobbleLine(poses)}`,
       `exposure ${ctx.exposure}`,
     );
     if (e) {
