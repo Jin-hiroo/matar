@@ -127,7 +127,17 @@ paper and the video lagged behind the camera.
   the homography fit and the one-frame focal length by board speed (a rolling
   shutter skews a moving board); a `history` line has the camera, focal-length and
   exposure changes timed from the first frame; the exposure line adds zoom, focus
-  distance and resize mode where reported.
+  distance and resize mode where reported; a `corners` line has one still frame's
+  detected tag corners (geometry only), which `scripts/refit-corners.ts` refits to
+  tell a lens, a bent sheet and edge placement apart when the corners don't fit a
+  flat board; an `edges` line has how much bigger or smaller the tags look than
+  printed against the board's own spacing (blur with a tone curve unlike the
+  detector's `edgeGamma` moves every edge alike), and `?edgeGamma=` sets
+  `detector.edgeGamma`; a `centre` line splits the one-frame focal length since
+  Start by the image edge the paper recedes towards and fits the lens centre that
+  makes opposite edges agree (the self-calibration takes the lens centre it starts
+  with, the image centre unless given). `?centre=dx,dy` starts the saved calibration
+  from a lens centre that far from the image centre, px.
 - `TrackerOptions.camera.maxExposureMs` (opt-in): a shorter exposure against motion
   blur. About 1 s after the camera opens, an automatic exposure longer than this is
   set to it with the ISO raised by the same factor (Image Capture manual exposure,
