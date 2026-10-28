@@ -137,7 +137,12 @@ paper and the video lagged behind the camera.
   Start by the image edge the paper recedes towards and fits the lens centre that
   makes opposite edges agree (the self-calibration takes the lens centre it starts
   with, the image centre unless given). `?centre=dx,dy` starts the saved calibration
-  from a lens centre that far from the image centre, px.
+  from a lens centre that far from the image centre, px. A `wobble` line has how far
+  the cube's top jumps against the paper from frame to frame beyond steady motion,
+  by board speed (where content above the paper appears on it depends only on the
+  camera position, so this is that position's jitter), and `?outline` draws each
+  tag's outline on the paper with the pose: it stays on the printed squares while
+  the picture on screen and the pose agree.
 - `TrackerOptions.camera.maxExposureMs` (opt-in): a shorter exposure against motion
   blur. About 1 s after the camera opens, an automatic exposure longer than this is
   set to it with the ISO raised by the same factor (Image Capture manual exposure,
