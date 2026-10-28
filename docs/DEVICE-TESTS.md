@@ -1870,3 +1870,69 @@ calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.8 / 0.9 p
 centre   one-frame f by the image edge the paper recedes towards, since Start: top 1127 (493), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
 corners  -1.3 s, outer corners 7 px/s, tilt 42°, 720×1280 fx 1128.4 fy 1128.4 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 216.1,491.9 219.9,528.7 162.7,536.0 161.0,498.5 · 115: 133.7,563.0 134.8,604.5 73.8,613.2 74.8,570.6 · 170: 591.7,573.1 609.9,616.4 549.1,624.4 533.0,580.6 · 252: 540.9,452.3 555.5,488.2 501.2,494.7 488.1,458.5 · 259: 432.6,670.4 445.7,718.7 378.8,728.0 368.3,679.4 · 287: 135.4,632.4 137.0,679.5 71.7,688.8 73.0,640.4 · 319: 527.8,657.3 544.7,704.5 479.1,713.7 464.7,665.6 · 389: 138.3,710.3 138.6,761.4 69.1,771.3 71.1,719.3 · 415: 461.3,461.8 473.1,497.7 418.1,505.0 407.9,468.0 · 442: 335.4,683.8 344.6,732.5 277.1,742.2 270.7,692.2 · 449: 380.5,471.4 389.9,508.6 334.0,514.9 326.6,478.2 · 478: 620.9,643.9 642.3,690.4 577.5,699.6 559.1,652.3 · 484: 564.8,510.0 580.9,547.9 523.8,555.4 509.4,516.7 · 518: 298.4,481.5 305.3,518.3 248.8,525.2 244.0,488.2 · 523: 237.2,696.3 242.6,747.0 173.9,756.4 171.9,705.4 · 580: 132.2,502.5 133.4,539.2 75.4,547.0 76.4,509.1
 ```
+
+### 2026-10-28, Android, Chrome 155: hand-held at 530 mm, the sheet flat (Vercel)
+
+One hand-held session at 33–35° tilt and 530–545 mm above the paper, the paper
+receding towards the top of the image, `?exposure=4&edgeGamma=2.6`, no
+`?centre=`, ISO 624. Since 2026-10-25 the sheet has been glued to a solid
+surface.
+
+- **The corners fit a flat sheet:** `scripts/refit-corners.ts` gives a
+  homography fit of 0.72 px. With one tag size for all tags (1.7 % smaller than
+  printed, about 0.43 px per edge towards the black) it's 0.39 px, and each half
+  of the board alone then fits to 0.33–0.36 px (left and right, top and bottom).
+  The same refit of the 2026-10-25 hand-held frames leaves 0.75–0.78 px, with the
+  board's left half at 0.47–0.50 px and its right half at 0.68–0.76 px.
+- **`edges`:** −0.57 px, the largest so far, at the same ISO 624 as the +0.12 and
+  +0.13 px of 2026-10-25 Tests 1–2, so the light level alone doesn't set it.
+- **`err` is mostly the tag edges, not the content:** fitting the tag size moves
+  the board plane in the image by 0.11 px rms (0.27 px at most over
+  ±100 × ±150 mm). Solving this frame's pose with the image centre and the f in
+  use (1145.6 px) instead of the measured lens centre (−1.3, +18.7) and f 1102 px
+  moves the camera by 24 mm but the demo's 50 mm cube by at most 0.14 px at its
+  base and 0.46 px at its top (11–13 mm and 0.29–0.44 px for 2026-10-25 Tests 2
+  and 4). Either way the content lands within about half a pixel of the
+  720 × 1280 frame, against an `err` of 0.75 px.
+- **Focal length:** 1145.6 px estimated (±0.71 %, up from the saved 1128.4),
+  `fit` 1129 px. This frame's one-frame f is 1133 px with the image centre and
+  1102 px with (−1.3, +18.7), the same as at 420–437 mm on 2026-10-25. At 33°
+  tilt the lens centre puts the image-centre f 2.8 % high (2.0 % at 43°). The
+  estimate is higher still: frames with the board moving at ≥ 300 px/s give a
+  one-frame f of 1161 px, against 1132 px under 100 px/s, as a rolling shutter
+  would (not checked).
+- **On screen:** the cube slides or wobbles on the paper when the phone moves
+  slightly (no offset or shiver reported with the phone still), in `bg frame`
+  and `pose raw` mode: each analysed frame shown with its own pose.
+
+```text
+matar demo report (last 5 s)
+mode     bg frame, pose raw, worker module, url ?exposure=4&edgeGamma=2.6
+device   Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Mobile Safari/537.36
+screen   412×892 css px, dpr 2.625, portrait-primary
+camera   camera 0, facing back (pinned), videoframe I420 720×1280 rot 0°, analysed 720×1280
+inputs   camera 0, facing back | camera 1, facing front | camera 3, facing front | camera 2, facing back
+fps      camera 29.9, analysed 30.0, with a pose 150/150
+interval 33 / 34 ms between analysed frames
+no pose  0 frames in 0 runs (longest 0), tags found on them -
+grab     0.3 / 0.5 ms on the main thread before the transfer (bg frame: the texture upload)
+worker   14.5 / 23.0 ms
+stages   gray 0.3 / 0.5  detect 13.0 / 21.7  pose 0.9 / 1.3  focal 0.1 / 0.2 ms
+bg age   18 / 35 ms at render
+pose age 18 / 35 ms at render
+pose lag 0 / 0 ms behind the background (0 with bg frame)
+render   0.4 / 0.6 ms
+tags     16 / 16 found, 16 / 16 used, err 0.75 / 1.10 px (0.46 / 0.56 mm on the paper)
+err by r centre 0.79 px (7229 corners), middle 0.94 (2255), edge - (0)
+edges    tags −0.57 px bigger than printed vs the fit (10–90 %: −0.72 to −0.41 over 150 frames; − = smaller, edges placed towards the black), 100 % of tags smaller; edgeGamma 2.6 (?edgeGamma=)
+view     530 / 545 mm above the paper, tilt 33 / 35° from straight down
+motion   board centre 40 / 452 px/s in the image (≈ 0 / 2 px of blur at 4.0 ms)
+exposure 4.0 ms, none, ISO 624, 30 fps, focus continuous, focus distance 0, zoom 1, resize none; settable: modes continuous/manual, time 0.0–150.0 ms, ISO 12–3200; ?exposure=4 (camera.maxExposureMs): set
+focal    1145.6 px (estimated ±0.71 %); started from the one saved for camera 0, facing back (1128.4 px, camera names listed after a permission prompt); measured one saved for camera 0, facing back; first estimate 9.3 s after the first frame it could use
+fit      1129 px best (1119–1174 over 12 tilted frames; long-side FOV 59.1°, ?fov=59.1), err 0.75 px with it, 0.76 px with the f in use
+calib    150 frames with ≥ 6 tags at ≥ 20° tilt (homography fit 0.7 / 0.9 px, 0.4 / 0.5 mm on the paper), 150 of them under 1 px or 1 mm, from 5 directions ≥ 10° apart (12 since Start; it needs 3); fit and one-frame f by board speed: < 100 px/s 0.7 px, f 1132 (98), 100–300 0.7 px, f 1138 (25), ≥ 300 0.8 px, f 1161 (27)
+centre   one-frame f by the image edge the paper recedes towards, since Start: top 1135 (488), bottom - (0), left - (0), right - (0); lens centre not fitted (needs the paper receding towards opposite edges: top and bottom, or left and right)
+history  0.0 s camera camera 0, facing back · 0.0 s exposure pending · 0.0 s f 1128.4 px (provided) · 1.4 s exposure short 4.0 ms ISO 624 · 9.4 s f 1134.4 px (estimated ±0.98 %) · 9.7 s f 1133.8 px (estimated ±0.87 %) · 12.4 s f 1137.8 px (estimated ±0.78 %) · 12.6 s f 1142.3 px (estimated ±0.85 %) · 12.9 s f 1142.5 px (estimated ±0.77 %) · 13.2 s f 1145.6 px (estimated ±0.71 %)
+corners  -0.9 s, outer corners 8 px/s, tilt 34°, 720×1280 fx 1145.6 fy 1145.6 cx 359.5 cy 639.5; id: TL TR BR BL px (* not used) · 67: 496.9,786.4 491.9,733.5 547.9,735.8 555.0,788.9 · 115: 572.9,705.7 566.0,657.5 619.5,660.1 627.5,708.0 · 170: 137.6,601.5 142.2,555.0 198.9,558.6 196.0,604.9 · 252: 121.3,771.9 126.7,715.7 188.9,718.8 185.3,774.2 · 259: 312.5,538.6 311.9,496.3 364.1,500.2 366.0,542.2 · 287: 561.6,628.0 555.5,583.2 606.1,586.3 614.0,630.7 · 319: 229.7,532.8 231.5,490.4 284.7,494.7 283.7,536.4 · 389: 551.5,556.1 545.5,514.5 593.9,519.0 601.1,559.2 · 415: 218.8,775.1 221.0,720.2 281.8,723.5 281.4,777.4 · 442: 393.9,544.2 391.7,502.8 442.6,506.5 446.4,547.7 · 449: 313.5,779.0 313.2,725.0 372.8,727.7 375.0,781.4 · 478: 144.9,527.0 149.1,484.6 203.2,487.9 200.4,530.4 · 484: 129.8,682.7 134.6,631.8 193.9,635.3 191.1,685.6 · 518: 406.7,782.8 404.0,729.1 461.5,732.2 466.2,785.0 · 523: 473.6,550.0 469.5,508.8 519.0,512.1 524.5,554.1 · 580: 585.7,790.4 577.6,737.5 632.6,739.9 642.0,793.1
+(median / 90th percentile; ages count from each frame’s expected display time, so < 0 = not on screen yet)
+```
