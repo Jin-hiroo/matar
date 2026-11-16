@@ -6,6 +6,11 @@ All notable changes to matar. The format follows
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-17
+
+The first release on npm (`pnpm add matar`). Earlier builds were only shared as packed
+tarballs.
+
 First device test (Android): tracking worked but felt laggy: the cube trailed the
 paper and the video lagged behind the camera.
 

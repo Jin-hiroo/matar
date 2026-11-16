@@ -4,7 +4,7 @@
 and three.js content stays put on the paper, in iPhone Safari and Android Chrome alike.
 No WebXR, no app, no server.
 
-[![Version 0.1.0](https://img.shields.io/badge/version-0.1.0-blue)](CHANGELOG.md)
+[![npm](https://img.shields.io/npm/v/matar)](https://www.npmjs.com/package/matar)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)](package.json)
 [![Size: 35 KB min+gzip including the worker](https://img.shields.io/badge/size-35%20KB%20gzip-brightgreen)](.size-limit.json)
@@ -53,12 +53,11 @@ Requirements: an ESM bundler that understands `new Worker(new URL(…, import.me
 Checked with Next.js 16 (Turbopack and webpack), Vite 8. `three ≥ 0.173` if you use
 `matar/three`.
 
-matar isn't on npm yet. Build the tarball and install it in your app:
-
 ```bash
-git clone <this repo> matar && cd matar && pnpm install && pnpm build && pnpm pack
-cd ../your-app && pnpm add ../matar/matar-0.1.0.tgz three
+pnpm add matar three   # or: npm install matar three
 ```
+
+`three` is needed only for `matar/three`.
 
 ## Usage
 

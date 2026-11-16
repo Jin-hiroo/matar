@@ -7,7 +7,7 @@ is relative to the paper, and lets three.js draw content registered to it. It
 runs in **iOS Safari and Android Chrome** using only standard web APIs: no
 WebXR, no flags, no app, no server.
 
-Its first consumer is ExhibitAR (a separate, possibly private app). Nothing in
+Its first consumer is ExhibitAR (a separate, closed-source app). Nothing in
 this repo may depend on or mention ExhibitAR internals.
 
 Read these before working:
