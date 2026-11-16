@@ -1,8 +1,29 @@
 {
   "name": "matar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Browser AR for printed paper mats: square-tag tracking from the phone camera, no WebXR, no app.",
   "license": "Apache-2.0",
+  "author": "Jin-hiroo",
+  "homepage": "https://github.com/Jin-hiroo/matar#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Jin-hiroo/matar.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Jin-hiroo/matar/issues"
+  },
+  "keywords": [
+    "ar",
+    "augmented-reality",
+    "webar",
+    "apriltag",
+    "fiducial-markers",
+    "marker-tracking",
+    "pose-estimation",
+    "camera",
+    "three",
+    "threejs"
+  ],
   "type": "module",
   "sideEffects": false,
   "engines": {
@@ -38,6 +59,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "pnpm build",
     "dev": "vite demo",
     "demo:build": "vite build demo",
     "test": "vitest run",

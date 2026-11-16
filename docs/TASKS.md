@@ -245,6 +245,8 @@ workstream that hasn't landed: code against `src/types.ts` and stub it.
       imports matar during prerendering (SSR safe).
 - [x] **I4 Release v0.1.0**: README usage, CHANGELOG, `pnpm pack` tarball for
       integrators; tag `v0.1.0`.
+- [ ] **I5 Release v0.2.0 on npm**: package metadata, README install from npm,
+      CHANGELOG; `pnpm publish` from `main` and tag `v0.2.0`.
 
 ## Device (maintainer)
 
