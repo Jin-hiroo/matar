@@ -4,7 +4,7 @@
 and three.js content stays put on the paper, in iPhone Safari and Android Chrome alike.
 No WebXR, no app, no server.
 
-[![npm](https://img.shields.io/npm/v/matar)](https://www.npmjs.com/package/matar)
+[![npm](https://img.shields.io/npm/v/@jinsa/matar)](https://www.npmjs.com/package/@jinsa/matar)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Runtime dependencies: 0](https://img.shields.io/badge/runtime%20dependencies-0-brightgreen)](package.json)
 [![Size: 35 KB min+gzip including the worker](https://img.shields.io/badge/size-35%20KB%20gzip-brightgreen)](.size-limit.json)
@@ -51,19 +51,20 @@ you control what's printed: a mat, a poster, a game board, a museum label.
 
 Requirements: an ESM bundler that understands `new Worker(new URL(…, import.meta.url))`.
 Checked with Next.js 16 (Turbopack and webpack), Vite 8. `three ≥ 0.173` if you use
-`matar/three`.
+`@jinsa/matar/three`.
 
 ```bash
-pnpm add matar three   # or: npm install matar three
+pnpm add @jinsa/matar three   # or: npm install @jinsa/matar three
 ```
 
-`three` is needed only for `matar/three`.
+`three` is needed only for `@jinsa/matar/three`. The npm package is scoped because npm
+doesn't accept the bare name `matar` (too close to `tar`).
 
 ## Usage
 
 ```ts
-import { boardSvg, createBoard, createTracker, layoutBorderTags, pickTagIds } from 'matar';
-import { MatarThree } from 'matar/three';
+import { boardSvg, createBoard, createTracker, layoutBorderTags, pickTagIds } from '@jinsa/matar';
+import { MatarThree } from '@jinsa/matar/three';
 import * as THREE from 'three';
 
 // 1. A board: 16 tags of 32 mm around an A4 page, origin at the page centre.

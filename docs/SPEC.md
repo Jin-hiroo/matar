@@ -46,8 +46,8 @@ anything natural: no SLAM, no feature matching, no models to download.
 ## 4. Public API (shape; ARCHITECTURE.md §8 is normative)
 
 ```ts
-import { createBoard, layoutBorderTags, pickTagIds, createTracker } from 'matar';
-import { MatarThree } from 'matar/three';
+import { createBoard, layoutBorderTags, pickTagIds, createTracker } from '@jinsa/matar';
+import { MatarThree } from '@jinsa/matar/three';
 
 const tags = layoutBorderTags({
   areaMm: { x: 0, y: 0, width: 210, height: 297 }, // A4 page

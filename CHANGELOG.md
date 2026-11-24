@@ -6,9 +6,10 @@ All notable changes to matar. The format follows
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-11-17
+## [0.2.0] - 2026-11-24
 
-The first release on npm (`pnpm add matar`). Earlier builds were only shared as packed
+The first release on npm, as `@jinsa/matar` (`pnpm add @jinsa/matar`; npm doesn't
+accept the bare name `matar`). Earlier builds were only shared as packed
 tarballs.
 
 First device test (Android): tracking worked but felt laggy: the cube trailed the
