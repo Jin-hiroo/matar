@@ -1,5 +1,5 @@
 {
-  "name": "matar",
+  "name": "@jinsa/matar",
   "version": "0.2.0",
   "description": "Browser AR for printed paper mats: square-tag tracking from the phone camera, no WebXR, no app.",
   "license": "Apache-2.0",
@@ -28,6 +28,9 @@
   "sideEffects": false,
   "engines": {
     "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist",
